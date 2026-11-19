@@ -11,14 +11,14 @@ Review and approve synthetic returns in a local browser app. The console include
 Use Node.js 22.13 or later. Run the command and open the address printed in your terminal. The default port is `4332`. Use `--port 0` to choose an available port.
 
 ```sh
-npx --yes @ihyeon/return-review-console@0.1.1 --lang en
+npx --yes @ihyeon/return-review-console@latest --lang en
 ```
 
 Use the language selector to switch the interface at any time. For a fresh set of sample returns, supply a new `--data-dir`. The same directory preserves approval records and information used to replay an approval request. Use synthetic data for the exercises.
 
 ```sh
-npx --yes @ihyeon/return-review-console@0.1.1 --lang en --data-dir ./return-review-data --port 0
-npx --yes @ihyeon/return-review-console@0.1.1 --lang en --help
+npx --yes @ihyeon/return-review-console@latest --lang en --data-dir ./return-review-data --port 0
+npx --yes @ihyeon/return-review-console@latest --lang en --help
 ```
 
 ### Try a conflicting approval
@@ -40,14 +40,14 @@ The server binds to the local loopback interface. The package is released under 
 Node.js 22.13 이상에서 다음 명령을 실행하고, 터미널에 표시된 주소를 여세요. 기본 포트는 `4332`입니다. `--port 0`은 비어 있는 포트를 선택합니다.
 
 ```sh
-npx --yes @ihyeon/return-review-console@0.1.1 --lang ko
+npx --yes @ihyeon/return-review-console@latest --lang ko
 ```
 
 화면의 언어 선택에서 한국어와 영어를 전환할 수 있습니다. 다른 실습을 시작하려면 새 `--data-dir`을 지정하세요. 같은 폴더를 사용하면 승인 기록과 재시도 정보가 유지됩니다. 실습에는 합성 데이터를 사용하세요.
 
 ```sh
-npx --yes @ihyeon/return-review-console@0.1.1 --lang ko --data-dir ./return-review-data --port 0
-npx --yes @ihyeon/return-review-console@0.1.1 --lang ko --help
+npx --yes @ihyeon/return-review-console@latest --lang ko --data-dir ./return-review-data --port 0
+npx --yes @ihyeon/return-review-console@latest --lang ko --help
 ```
 
 ### 두 담당자의 승인 충돌 체험
