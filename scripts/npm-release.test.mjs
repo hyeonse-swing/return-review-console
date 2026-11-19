@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readRegistry, releaseDecision } from './npm-release.mjs';
+import { createHash } from 'node:crypto';
+import { checkPublicArchive, readRegistry, releaseDecision } from './npm-release.mjs';
 
 const name = '@ihyeon/return-review-console';
 const repository = 'git+https://github.com/hyeonse-swing/return-review-console.git';
@@ -29,4 +30,22 @@ test('registry errors cannot be interpreted as a missing version', async () => {
   await assert.rejects(readRegistry(async () => ({ ok: false, status: 503 })), /HTTP 503/);
   await assert.rejects(readRegistry(async () => ({ ok: false, status: 404 })), /HTTP 404/);
   assert.throws(() => releaseDecision(manifest('0.1.2'), lock('0.1.2'), {}), /invalid package metadata/);
+});
+
+test('public archive requires canonical URL, HTTP 200, and the exact tested bytes', async () => {
+  const bytes = Buffer.from('tested release archive');
+  const integrity = `sha512-${createHash('sha512').update(bytes).digest('base64')}`;
+  const request = async (url, options) => {
+    assert.equal(url, 'https://registry.npmjs.org/@ihyeon/return-review-console/-/return-review-console-0.1.2.tgz');
+    assert.equal(options.cache, 'no-store');
+    assert.equal(options.redirect, 'error');
+    return { status: 200, arrayBuffer: async () => bytes };
+  };
+  assert.equal(await checkPublicArchive('0.1.2', integrity, request), true);
+  await assert.rejects(checkPublicArchive('0.1.2', integrity, async () => ({ status: 200, arrayBuffer: async () => Buffer.from('other') })), /bytes differ/);
+});
+
+test('public tarball HTTP 404 stays pending; other failures stop verification', async () => {
+  assert.equal(await checkPublicArchive('0.1.2', 'sha512-test', async () => ({ status: 404 })), false);
+  await assert.rejects(checkPublicArchive('0.1.2', 'sha512-test', async () => ({ status: 503 })), /HTTP 503/);
 });

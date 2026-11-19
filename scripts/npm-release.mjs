@@ -8,6 +8,8 @@ const REPOSITORY = 'hyeonse-swing/return-review-console';
 const REPOSITORY_URL = `git+https://github.com/${REPOSITORY}.git`;
 const REGISTRY = 'https://registry.npmjs.org/@ihyeon%2freturn-review-console';
 const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+const VERIFY_TIMEOUT_MS = 12 * 60_000;
+const VERIFY_INTERVAL_MS = 10_000;
 
 function versionParts(value) {
   const match = VERSION.exec(value ?? '');
@@ -22,6 +24,11 @@ function newerThan(current, previous) {
     if (a[index] !== b[index]) return a[index] > b[index];
   }
   return false;
+}
+
+function canonicalTarballUrl(version) {
+  versionParts(version);
+  return `https://registry.npmjs.org/@ihyeon/return-review-console/-/return-review-console-${version}.tgz`;
 }
 
 export function releaseDecision(pkg, lock, registry) {
@@ -65,6 +72,19 @@ export async function readRegistry(request = fetch) {
   return registry;
 }
 
+export async function checkPublicArchive(version, expectedIntegrity, request = fetch) {
+  const response = await request(canonicalTarballUrl(version), {
+    cache: 'no-store',
+    redirect: 'error',
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (response.status === 404) return false;
+  if (response.status !== 200) throw new Error(`npm public tarball: HTTP ${response.status}`);
+  const actualIntegrity = `sha512-${createHash('sha512').update(Buffer.from(await response.arrayBuffer())).digest('base64')}`;
+  if (actualIntegrity !== expectedIntegrity) throw new Error('npm public tarball bytes differ from the tested artifact');
+  return true;
+}
+
 function assertReleaseContext() {
   if (process.env.GITHUB_ACTIONS !== 'true') return;
   if (process.env.GITHUB_REPOSITORY !== REPOSITORY || process.env.GITHUB_EVENT_NAME !== 'push' || process.env.GITHUB_REF !== 'refs/heads/main') {
@@ -93,20 +113,35 @@ async function verify(tarball) {
   const pkg = JSON.parse(await readFile('package.json', 'utf8'));
   versionParts(pkg.version);
   const integrity = `sha512-${createHash('sha512').update(await readFile(tarball)).digest('base64')}`;
-  for (let attempt = 1; attempt <= 15; attempt++) {
+  const expectedTarballUrl = canonicalTarballUrl(pkg.version);
+  const deadline = Date.now() + VERIFY_TIMEOUT_MS;
+  let pending = 'registry metadata or latest tag is pending';
+  while (true) {
     const registry = await readRegistry();
     if (registry.name !== NAME) throw new Error('npm registry returned a different package');
     const released = registry.versions?.[pkg.version];
-    if (released?.dist?.integrity === integrity && registry['dist-tags']?.latest === pkg.version) {
-      console.log(`npm confirms ${NAME}@${pkg.version} as latest with the tested tarball integrity`);
-      return;
-    }
     if (released?.dist?.integrity && released.dist.integrity !== integrity) {
       throw new Error('npm registry tarball integrity differs from the tested artifact');
     }
-    if (attempt < 15) await new Promise(done => setTimeout(done, 10_000));
+    if (released?.dist?.tarball && released.dist.tarball !== expectedTarballUrl) {
+      throw new Error('npm registry tarball URL differs from the canonical npm archive URL');
+    }
+    if (released?.dist?.integrity === integrity && released.dist.tarball === expectedTarballUrl) {
+      const available = await checkPublicArchive(pkg.version, integrity);
+      if (available && registry['dist-tags']?.latest === pkg.version) {
+        console.log(`npm confirms ${NAME}@${pkg.version} as latest; public tarball HTTP 200 and SHA512 match the tested artifact`);
+        return;
+      }
+      pending = available ? 'latest tag is pending' : 'public tarball HTTP 404 is pending';
+    } else {
+      pending = 'registry metadata is pending';
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    console.log(`${NAME}@${pkg.version}: ${pending}; retrying in ${Math.min(VERIFY_INTERVAL_MS, remaining)}ms`);
+    await new Promise(done => setTimeout(done, Math.min(VERIFY_INTERVAL_MS, remaining)));
   }
-  throw new Error(`npm did not confirm ${NAME}@${pkg.version} as latest with the tested tarball integrity`);
+  throw new Error(`npm did not confirm ${NAME}@${pkg.version} after 12 minutes: ${pending}`);
 }
 
 async function main() {
