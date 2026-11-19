@@ -17,6 +17,7 @@
     "bin/return-review-console.mjs",
     "server/index.mjs",
     "server/storage.mjs",
+    "shared/fixtures.json",
     "dist/",
     "README.md"
   ],
@@ -26,6 +27,7 @@
   },
   "scripts": {
     "build": "tsc --noEmit && vite build",
+    "build:demo": "tsc --noEmit && vite build --mode demo --outDir dist-demo",
     "prepack": "npm run build",
     "start": "node bin/return-review-console.mjs",
     "start:dev": "node server/index.mjs",

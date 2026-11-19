@@ -53,6 +53,12 @@ p, h1, h2, h3, dl, dd, ul, ol { margin: 0; }
 .page-heading h1 { font-size: clamp(32px, 3.25vw, 49px); font-weight: 780; letter-spacing: -.065em; line-height: 1.13; }
 .page-heading p { margin-top: 10px; color: var(--muted); font-size: 14px; line-height: 1.5; }
 .refresh.hds-button { gap: 7px; flex: none; min-height: 44px; border-radius: 3px; }
+.web-demo { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; margin-top: 18px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--muted); font-size: 13px; line-height: 1.5; }
+.web-demo strong { color: var(--ink); margin-right: 4px; }
+.web-demo p + p { margin-top: 3px; }
+.web-demo .hds-button { min-height: 44px; }
+.demo-links { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 16px; font-size: 13px; }
+.demo-links a { display: inline-flex; align-items: center; min-height: 44px; color: var(--green); text-underline-offset: 3px; }
 .summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 23px 0 24px; border-block: 1px solid var(--line); background: var(--surface); }
 .summary div { min-width: 0; padding: 16px clamp(12px, 1.85vw, 26px) 14px; }
 .summary div + div { border-left: 1px solid var(--line); }

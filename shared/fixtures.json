@@ -1,0 +1,129 @@
+[
+  {
+    "id": "RET-2418",
+    "item": "워시드 코튼 재킷",
+    "sku": "JKT-WC-042",
+    "reason": "사이즈가 맞지 않음",
+    "receivedAt": "2026-11-18T01:35:00.000Z",
+    "condition": "택 부착 · 착용 흔적 없음",
+    "warehouse": "성수 입고센터",
+    "status": "pending",
+    "version": 1,
+    "customer": "고객 A-104",
+    "events": [
+      {
+        "id": "EV-2418-1",
+        "at": "2026-11-18T01:35:00.000Z",
+        "actor": "입고 담당",
+        "label": "입고 등록"
+      }
+    ]
+  },
+  {
+    "id": "RET-2421",
+    "item": "클래식 레더 토트",
+    "sku": "BAG-CL-019",
+    "reason": "상품 색상이 예상과 다름",
+    "receivedAt": "2026-11-18T02:12:00.000Z",
+    "condition": "보호 포장 유지 · 사용 흔적 없음",
+    "warehouse": "구로 입고센터",
+    "status": "pending",
+    "version": 1,
+    "customer": "고객 B-208",
+    "events": [
+      {
+        "id": "EV-2421-1",
+        "at": "2026-11-18T02:12:00.000Z",
+        "actor": "입고 담당",
+        "label": "입고 등록"
+      }
+    ]
+  },
+  {
+    "id": "RET-2423",
+    "item": "리브 니트 카디건",
+    "sku": "KNT-RC-106",
+    "reason": "중복 주문",
+    "receivedAt": "2026-11-18T03:46:00.000Z",
+    "condition": "미개봉",
+    "warehouse": "성수 입고센터",
+    "status": "pending",
+    "version": 1,
+    "customer": "고객 C-031",
+    "events": [
+      {
+        "id": "EV-2423-1",
+        "at": "2026-11-18T03:46:00.000Z",
+        "actor": "입고 담당",
+        "label": "입고 등록"
+      }
+    ]
+  },
+  {
+    "id": "RET-2411",
+    "item": "와이드 데님 팬츠",
+    "sku": "PNT-WD-055",
+    "reason": "기장 차이",
+    "receivedAt": "2026-11-17T07:20:00.000Z",
+    "condition": "택 부착 · 세탁 흔적 없음",
+    "warehouse": "구로 입고센터",
+    "status": "approved",
+    "version": 2,
+    "customer": "고객 D-143",
+    "events": [
+      {
+        "id": "EV-2411-1",
+        "at": "2026-11-17T07:20:00.000Z",
+        "actor": "입고 담당",
+        "label": "입고 등록"
+      },
+      {
+        "id": "EV-2411-2",
+        "at": "2026-11-17T08:05:00.000Z",
+        "actor": "검수 담당 A",
+        "label": "검수 승인",
+        "memo": "택과 제품 상태 확인"
+      }
+    ]
+  },
+  {
+    "id": "RET-2426",
+    "item": "캔버스 로우 스니커즈",
+    "sku": "SHO-CN-018",
+    "reason": "발볼이 맞지 않음",
+    "receivedAt": "2026-11-18T04:25:00.000Z",
+    "condition": "실내 시착 · 밑창 깨끗함",
+    "warehouse": "성수 입고센터",
+    "status": "pending",
+    "version": 1,
+    "customer": "고객 E-052",
+    "events": [
+      {
+        "id": "EV-2426-1",
+        "at": "2026-11-18T04:25:00.000Z",
+        "actor": "입고 담당",
+        "label": "입고 등록"
+      }
+    ]
+  },
+  {
+    "id": "RET-2429",
+    "item": "오버사이즈 스트라이프 셔츠",
+    "sku": "SHT-OS-083",
+    "reason": "원단 질감이 예상과 다름",
+    "receivedAt": "2026-11-18T05:51:00.000Z",
+    "condition": "택 부착 · 오염 없음",
+    "warehouse": "구로 입고센터",
+    "status": "pending",
+    "version": 1,
+    "customer": "고객 F-088",
+    "events": [
+      {
+        "id": "EV-2429-1",
+        "at": "2026-11-18T05:51:00.000Z",
+        "actor": "입고 담당",
+        "label": "입고 등록"
+      }
+    ]
+  }
+]

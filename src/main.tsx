@@ -5,7 +5,7 @@ import { NativeDialog } from '@hyeonse/design-system/overlays';
 import { ArrowDownLeft, ArrowRight, Check, ChevronRight, CircleAlert, Clock3, ListChecks, PackageCheck, RotateCw, Search, UserRound, Warehouse } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { approve, loadDetail, loadQueue } from './api';
+import { approve, isWebDemo, loadDetail, loadQueue, resetWebDemo } from './api';
 import type { ReturnDetail, ReturnRecord } from './api';
 import { copy, displayFixture, displayMemo, displayName, initialLanguage } from './i18n';
 import type { Language } from './i18n';
@@ -13,14 +13,20 @@ import '@hyeonse/design-system/tokens.css';
 import '@hyeonse/design-system/components.css';
 import './style.css';
 
-init({
-  project: 'return-review-console',
-  endpoint: '/api/client-errors',
-  preset: 'minimal',
-  captureNetwork: true,
-  shouldCaptureHttp: status => status >= 500,
-  flushIntervalMs: 150,
-});
+if (!isWebDemo) {
+  init({
+    project: 'return-review-console',
+    endpoint: '/api/client-errors',
+    preset: 'minimal',
+    captureNetwork: true,
+    shouldCaptureHttp: status => status >= 500,
+    flushIntervalMs: 150,
+  });
+}
+
+const demoChannel = isWebDemo && typeof BroadcastChannel !== 'undefined'
+  ? new BroadcastChannel('return-review:demo')
+  : null;
 
 const reviewers = ['민서', '지훈'] as const;
 type StatusFilter = 'all' | ReturnRecord['status'];
@@ -51,6 +57,15 @@ function reviewDraft(id: string, reviewer: typeof reviewers[number], value?: str
     else sessionStorage.removeItem(key);
   } catch { /* The in-memory draft still works when session storage is unavailable. */ }
   return value ?? '';
+}
+
+function clearDemoDrafts() {
+  try {
+    for (let index = sessionStorage.length - 1; index >= 0; index--) {
+      const key = sessionStorage.key(index);
+      if (key?.startsWith('return-review:draft:')) sessionStorage.removeItem(key);
+    }
+  } catch { /* The browser may block session storage. */ }
 }
 
 function updateLocation(id: string | null) {
@@ -169,6 +184,54 @@ function Approval({ current, reviewer, language, onUpdate }: {
   </>;
 }
 
+function DemoNotice({ language, onReset }: { language: Language; onReset: () => void }) {
+  const t = copy[language];
+  const [open, setOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
+
+  async function reset() {
+    if (resetting) return;
+    setFailed(false);
+    setResetting(true);
+    try {
+      await resetWebDemo();
+      onReset();
+      setResetDone(true);
+      setOpen(false);
+    } catch {
+      setFailed(true);
+    } finally {
+      setResetting(false);
+    }
+  }
+
+  return <section className="web-demo" aria-label={t.demoWorkspace} data-testid="web-demo">
+    <div>
+      <p><strong>{t.demoWorkspace}</strong> {t.webDemoStorage}</p>
+      <p>{t.webDemoConflict}</p>
+      {resetDone && <p role="status">{t.demoResetDone}</p>}
+    </div>
+    <NativeDialog title={t.demoReset} description={t.demoResetDescription} closeLabel={t.close}
+      open={open} onOpenChange={value => {
+        if (resetting) return;
+        if (value) {
+          setFailed(false);
+          setResetDone(false);
+        }
+        setOpen(value);
+      }}
+      trigger={<Button variant="secondary" data-testid="reset-demo">{t.demoReset}</Button>}
+      footer={<>
+        <Button variant="secondary" disabled={resetting} onClick={() => setOpen(false)}>{t.cancel}</Button>
+        <Button data-testid="confirm-reset-demo" loading={resetting} onClick={() => void reset()}>{t.demoResetConfirm}</Button>
+      </>}>
+      {failed && <p role="alert">{t.demoResetError}</p>}
+    </NativeDialog>
+  </section>;
+}
+
 function App() {
   const [language, setLanguage] = useState<Language>(startingLanguage);
   const t = copy[language];
@@ -196,6 +259,17 @@ function App() {
     && (!query || [record.id, record.item, displayFixture(record.item, language), record.sku]
       .some(value => value.toLocaleLowerCase(language).includes(query))));
   const record = detail?.record.id === selected ? detail.record : null;
+
+  useEffect(() => {
+    if (!demoChannel) return;
+    function syncDemoReset(event: MessageEvent) {
+      if (event.data !== 'reset') return;
+      clearDemoDrafts();
+      location.reload();
+    }
+    demoChannel.addEventListener('message', syncDemoReset);
+    return () => demoChannel.removeEventListener('message', syncDemoReset);
+  }, []);
 
   useEffect(() => {
     document.documentElement.lang = language;
@@ -272,6 +346,12 @@ function App() {
     setReload(previous => previous + 1);
   }
 
+  function resetView() {
+    clearDemoDrafts();
+    demoChannel?.postMessage('reset');
+    refresh();
+  }
+
   function update(next: ReturnDetail) {
     const known = latestRecords.current.get(next.record.id);
     if (known && known.version > next.record.version) return;
@@ -317,6 +397,7 @@ function App() {
           <div><h1>{t.review}</h1><p>{t.pageDescription}</p></div>
           <Button variant="secondary" className="refresh" onClick={refresh} disabled={queueLoading}><RotateCw size={15} aria-hidden="true" />{t.refresh}</Button>
         </div>
+        {isWebDemo && <DemoNotice language={language} onReset={resetView} />}
         <dl className="summary">
           <div><dt><ListChecks size={16} aria-hidden="true" />{t.allReturns}</dt><dd>{queue.length}<span>{t.countSuffix(queue.length)}</span></dd></div>
           <div><dt><Clock3 size={16} aria-hidden="true" />{t.pending}</dt><dd>{pending}<span>{t.countSuffix(pending)}</span></dd></div>
@@ -384,6 +465,11 @@ function App() {
               </> : <p className="queue-message" role="status">{selected ? t.detailLoading : t.detailEmpty}</p>}
           </section>
         </div>
+        {isWebDemo && <nav className="demo-links" aria-label={t.projectLinks}>
+          <a href={`https://portfolio.hyeonse.dev/${language === 'en' ? 'en/' : ''}about/#return-review-console`}>{t.projectOverview}</a>
+          <a href="https://github.com/hyeonse-swing/return-review-console">GitHub</a>
+          <a href="https://www.npmjs.com/package/@ihyeon/return-review-console">{t.npmPackage}</a>
+        </nav>}
       </div>
     </main>
   </div>;

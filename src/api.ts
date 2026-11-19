@@ -17,11 +17,18 @@ export interface ReturnDetail {
   etag: string;
 }
 
+export const isWebDemo = import.meta.env.MODE === 'demo';
+
+export async function resetWebDemo(): Promise<void> {
+  if (isWebDemo) await (await import('./demo')).resetDemo();
+}
+
 function detailUrl(id: string) {
   return `/api/returns/${encodeURIComponent(id)}`;
 }
 
 export async function loadQueue(signal: AbortSignal): Promise<ReturnRecord[]> {
+  if (isWebDemo) return (await import('./demo')).demoQueue(signal);
   const response = await fetch('/api/returns', { signal });
   if (!response.ok) throw new Error('Queue unavailable');
   const { records } = await response.json() as { records: ReturnRecord[] };
@@ -29,6 +36,7 @@ export async function loadQueue(signal: AbortSignal): Promise<ReturnRecord[]> {
 }
 
 export async function loadDetail(id: string, signal: AbortSignal): Promise<ReturnDetail> {
+  if (isWebDemo) return (await import('./demo')).demoDetail(id, signal);
   const response = await fetch(detailUrl(id), { signal });
   const etag = response.headers.get('ETag');
   if (!response.ok || !etag) throw new Error('Return detail unavailable');
@@ -44,6 +52,7 @@ type ApprovalResult =
 
 export async function approve(detail: ReturnDetail, reviewer: string, memo: string, operationKey: string): Promise<ApprovalResult> {
   try {
+    if (isWebDemo) return await (await import('./demo')).demoApprove(detail, reviewer, memo, operationKey);
     const response = await fetch(`${detailUrl(detail.record.id)}/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'If-Match': detail.etag, 'Idempotency-Key': operationKey },
