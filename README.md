@@ -31,7 +31,7 @@ npx --yes @ihyeon/return-review-console@latest --lang en --help
 2. Open **Approve return** in both tabs and enter different notes. Choose **Confirm approval** in Minseo’s tab first.
 3. Choose **Confirm approval** in Jihoon’s tab. The console shows that another reviewer completed the return and keeps Jihoon’s draft in that tab. Choose **Close and view history** to see the single recorded approval.
 
-The server compares `If-Match` with the record version and returns `412` with the latest record to a stale editor. If an approval response is lost, retrying with the same `Idempotency-Key` and request body returns the saved response, even after a server restart.
+The server compares `If-Match` with the record version and returns `412` with the latest record to a stale editor. If an approval response is lost, use **Check approval result** to retry the same request. The console keeps that request when you reload the same tab. A request that was already committed returns its saved response, even after a server restart.
 
 The server binds to the local loopback interface. The package is released under the MIT license and includes notices for bundled dependencies.
 
@@ -64,6 +64,6 @@ npx --yes @ihyeon/return-review-console@latest --lang ko --help
 2. 두 탭에서 **승인하기**를 열고 서로 다른 메모를 입력합니다. 민서 탭에서 먼저 **승인 확정**을 누릅니다.
 3. 지훈 탭에서 **승인 확정**을 누르면 다른 담당자가 먼저 처리했다는 안내가 나오고 초안은 해당 탭에 남습니다. **닫고 내역 보기**에서 승인 기록이 한 건인지 확인합니다.
 
-서버는 `If-Match`를 현재 기록 버전과 비교합니다. 오래된 요청에는 `412`와 함께 최신 기록을 반환합니다. 승인 응답이 끊긴 경우, 같은 `Idempotency-Key`와 요청 내용으로 재시도하면 서버 재시작 뒤에도 저장한 결과를 반환합니다.
+서버는 `If-Match`를 현재 기록 버전과 비교합니다. 오래된 요청에는 `412`와 함께 최신 기록을 반환합니다. 승인 응답이 끊기면 **승인 결과 확인**에서 같은 요청으로 다시 확인할 수 있습니다. 같은 탭을 새로고침해도 해당 요청을 이어서 확인할 수 있어요. 이미 처리된 요청은 서버를 재시작한 뒤에도 저장된 결과를 반환합니다.
 
 서버는 로컬 루프백에서 실행됩니다. MIT 라이선스로 배포하며 번들 의존성의 라이선스 고지를 함께 제공합니다.

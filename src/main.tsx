@@ -29,6 +29,8 @@ const demoChannel = isWebDemo && typeof BroadcastChannel !== 'undefined'
   : null;
 
 const reviewers = ['민서', '지훈'] as const;
+type Reviewer = typeof reviewers[number];
+type PendingApproval = { key: string; etag: string; memo: string };
 type StatusFilter = 'all' | ReturnRecord['status'];
 const filters: StatusFilter[] = ['all', 'pending', 'approved'];
 const formatters = {
@@ -49,7 +51,7 @@ function formatDate(iso: string, language: Language, short = false) {
   return formatters[language][short ? 'short' : 'long'].format(new Date(iso));
 }
 
-function reviewDraft(id: string, reviewer: typeof reviewers[number], value?: string): string {
+function reviewDraft(id: string, reviewer: Reviewer, value?: string): string {
   const key = `return-review:draft:${id}:${reviewer}`;
   try {
     if (value === undefined) return sessionStorage.getItem(key) ?? '';
@@ -59,11 +61,39 @@ function reviewDraft(id: string, reviewer: typeof reviewers[number], value?: str
   return value ?? '';
 }
 
-function clearDemoDrafts() {
+function pendingApprovalKey(id: string, reviewer: Reviewer) {
+  return `return-review:pending-approval:${id}:${reviewer}`;
+}
+
+function readPendingApproval(id: string, reviewer: Reviewer): PendingApproval | null {
+  try {
+    const value = sessionStorage.getItem(pendingApprovalKey(id, reviewer));
+    if (!value) return null;
+    const operation: Partial<PendingApproval> | null = JSON.parse(value);
+    if (typeof operation?.key === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(operation.key)
+        && typeof operation.etag === 'string' && /^"(?:[a-f0-9-]{36}:)?[1-9]\d*"$/.test(operation.etag)
+        && typeof operation.memo === 'string' && operation.memo.length <= 500) {
+      return { key: operation.key, etag: operation.etag, memo: operation.memo };
+    }
+  } catch { /* Invalid or unavailable storage leaves the tab in its default state. */ }
+  return null;
+}
+
+function writePendingApproval(id: string, reviewer: Reviewer, operation: PendingApproval | null) {
+  try {
+    const key = pendingApprovalKey(id, reviewer);
+    if (operation) sessionStorage.setItem(key, JSON.stringify(operation));
+    else sessionStorage.removeItem(key);
+  } catch { /* The current component retains the request when storage is unavailable. */ }
+}
+
+function clearDemoReviewState() {
   try {
     for (let index = sessionStorage.length - 1; index >= 0; index--) {
       const key = sessionStorage.key(index);
-      if (key?.startsWith('return-review:draft:')) sessionStorage.removeItem(key);
+      if (key?.startsWith('return-review:draft:') || key?.startsWith('return-review:pending-approval:')) {
+        sessionStorage.removeItem(key);
+      }
     }
   } catch { /* The browser may block session storage. */ }
 }
@@ -84,24 +114,25 @@ function Status({ record, language, detailed = false }: { record: ReturnRecord; 
 
 function Approval({ current, reviewer, language, onUpdate }: {
   current: ReturnDetail;
-  reviewer: typeof reviewers[number];
+  reviewer: Reviewer;
   language: Language;
   onUpdate: (updated: ReturnDetail) => void;
 }) {
   const { record } = current;
   const t = copy[language];
   const [open, setOpen] = useState(false);
-  const [memo, setMemo] = useState(() => reviewDraft(record.id, reviewer));
-  const [message, setMessage] = useState<'conflict' | 'failed' | 'uncertain' | null>(null);
+  const [pendingOperation, setPendingOperation] = useState(() => readPendingApproval(record.id, reviewer));
+  const [memo, setMemo] = useState(() => pendingOperation?.memo ?? reviewDraft(record.id, reviewer));
+  const [message, setMessage] = useState<'conflict' | 'failed' | null>(null);
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
-  const pendingOperation = useRef<{ key: string; reviewer: string; memo: string } | null>(null);
   const updatedStatus = useRef<HTMLParagraphElement>(null);
   const moveFocus = useRef(false);
   const dialogNotice = useRef<HTMLParagraphElement>(null);
   const approved = record.status === 'approved';
   const conflicted = message === 'conflict';
-  const uncertain = message === 'uncertain';
+  const canConfirm = !approved || pendingOperation !== null;
+  const uncertain = pendingOperation !== null && !busy;
   const approvedByCurrentReviewer = conflicted && record.events.some(event => event.label === '검수 승인' && event.actor === reviewer);
 
   useEffect(() => {
@@ -112,31 +143,30 @@ function Approval({ current, reviewer, language, onUpdate }: {
   }, [approved, open]);
 
   useEffect(() => {
-    if (message && open) dialogNotice.current?.focus();
-  }, [message, open]);
+    if ((message || uncertain) && open) dialogNotice.current?.focus();
+  }, [message, uncertain, open]);
 
   function changeOpen(next: boolean) {
     if (submitting.current) return;
-    if (next && !pendingOperation.current) setMessage(null);
+    if (next) setMessage(null);
     if (!next && conflicted) moveFocus.current = true;
     setOpen(next);
   }
 
   async function confirm() {
-    if (submitting.current || approved) return;
+    if (submitting.current || !canConfirm) return;
     submitting.current = true;
     setBusy(true);
     setMessage(null);
-    const operation = pendingOperation.current ?? { key: crypto.randomUUID(), reviewer, memo };
-    pendingOperation.current = operation;
-    const result = await approve(current, operation.reviewer, operation.memo, operation.key);
+    const operation = pendingOperation ?? { key: crypto.randomUUID(), etag: current.etag, memo };
+    writePendingApproval(record.id, reviewer, operation);
+    setPendingOperation(operation);
+    const result = await approve({ ...current, etag: operation.etag }, reviewer, operation.memo, operation.key);
     submitting.current = false;
     setBusy(false);
-    if (result.kind === 'uncertain') {
-      setMessage('uncertain');
-      return;
-    }
-    pendingOperation.current = null;
+    if (result.kind === 'uncertain') return;
+    writePendingApproval(record.id, reviewer, null);
+    setPendingOperation(null);
     if (result.kind === 'failed') {
       setMessage('failed');
       return;
@@ -156,12 +186,12 @@ function Approval({ current, reviewer, language, onUpdate }: {
     <div className="approval-bar">
       <div>
         <p className="approval-label" ref={updatedStatus} tabIndex={-1}>
-          {approved ? t.approvalDone : uncertain ? t.approvalUnknown : t.approvalPrompt}
+          {uncertain ? t.approvalUnknown : approved ? t.approvalDone : t.approvalPrompt}
         </p>
-        <p className="muted">{approved ? t.approvalDoneHint : uncertain ? t.approvalUnknownHint : t.approvalPromptHint}</p>
+        <p className="muted">{uncertain ? t.approvalUnknownHint : approved ? t.approvalDoneHint : t.approvalPromptHint}</p>
       </div>
       <NativeDialog title={t.dialogTitle} description={`${record.id} · ${displayFixture(record.item, language)}`} closeLabel={t.close} open={open} onOpenChange={changeOpen}
-        trigger={<Button className="approve-button" size="lg" hidden={approved} disabled={approved}>{uncertain ? t.verifyApproval : t.approveReturn} <ArrowRight size={17} /></Button>}
+        trigger={<Button className="approve-button" size="lg" hidden={!canConfirm} disabled={!canConfirm}>{uncertain ? t.verifyApproval : t.approveReturn} <ArrowRight size={17} /></Button>}
         footer={<>
           <Button variant="secondary" onClick={() => changeOpen(false)} disabled={busy}>{conflicted ? t.closeAndHistory : uncertain ? t.later : t.cancel}</Button>
           {!conflicted && <Button type="submit" form="approval-form" loading={busy} loadingLabel={t.approving}>{uncertain ? t.retrySameRequest : t.confirmApproval}</Button>}
@@ -180,7 +210,7 @@ function Approval({ current, reviewer, language, onUpdate }: {
         </form>
       </NativeDialog>
     </div>
-    {approved && !open && memo && <p className="draft-note"><strong>{t.savedDraft}</strong> {memo}</p>}
+    {approved && !open && !uncertain && memo && <p className="draft-note"><strong>{t.savedDraft}</strong> {memo}</p>}
   </>;
 }
 
@@ -242,7 +272,7 @@ function App() {
   const [reload, setReload] = useState(0);
   const [selected, setSelected] = useState<string | null>(() => new URLSearchParams(location.search).get('id'));
   const [detail, setDetail] = useState<ReturnDetail | null>(null);
-  const [reviewer, setReviewer] = useState<typeof reviewers[number]>(() => {
+  const [reviewer, setReviewer] = useState<Reviewer>(() => {
     try { return sessionStorage.getItem('return-review:reviewer') === '지훈' ? '지훈' : '민서'; }
     catch { return '민서'; }
   });
@@ -264,7 +294,7 @@ function App() {
     if (!demoChannel) return;
     function syncDemoReset(event: MessageEvent) {
       if (event.data !== 'reset') return;
-      clearDemoDrafts();
+      clearDemoReviewState();
       location.reload();
     }
     demoChannel.addEventListener('message', syncDemoReset);
@@ -347,7 +377,7 @@ function App() {
   }
 
   function resetView() {
-    clearDemoDrafts();
+    clearDemoReviewState();
     demoChannel?.postMessage('reset');
     refresh();
   }

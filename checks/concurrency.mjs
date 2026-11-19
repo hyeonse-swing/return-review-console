@@ -149,11 +149,15 @@ try {
   await interrupted.getByRole('alert').getByText('승인 결과를 확인하지 못했어요. 같은 요청으로 다시 확인해 주세요.').waitFor();
   await interrupted.keyboard.press('Escape');
   await interrupted.getByRole('dialog', { name: '반품 승인' }).waitFor({ state: 'hidden' });
+  await interrupted.reload();
+  await interrupted.getByTestId('record-status').getByText('승인 완료').waitFor();
   await interrupted.getByRole('button', { name: '승인 결과 확인' }).click();
   assert.equal(await interrupted.getByRole('textbox', { name: '검수 메모' }).getAttribute('readonly'), '');
+  assert.equal(await interrupted.getByRole('textbox', { name: '검수 메모' }).inputValue(), retryMemo);
   await interrupted.getByRole('button', { name: '같은 요청 재시도' }).click();
   await interrupted.getByRole('dialog', { name: '반품 승인' }).waitFor({ state: 'hidden' });
   await interrupted.getByTestId('record-status').getByText('승인 완료').waitFor();
+  assert.equal(await interrupted.getByText('보관된 검수 메모', { exact: true }).count(), 0);
   assert.equal(interceptedRequests.length, 2);
   assert.match(interceptedRequests[0].key, /^[0-9a-f-]{36}$/);
   assert.deepEqual(interceptedRequests[0], interceptedRequests[1]);
@@ -257,7 +261,7 @@ try {
     browser: browser.version(), firstStatus: 200, secondStatus: 412, sameIfMatch: '"1"',
     draftRecoveredAfterReload: true, draftsIsolatedByReviewer: true, staleQueueReconciledAfterApproval: true,
     staleDetailReconciledAfterFreshQueue: true,
-    lostResponseRetriedWithSameKey: true, lostResponseApprovalEntries: 1, sameReviewerConflictAttributedCorrectly: true,
+    lostResponseRetriedAfterReloadWithSameKey: true, lostResponseApprovalEntries: 1, sameReviewerConflictAttributedCorrectly: true,
     version: record.version, approvals: approvals.length, flowQaRun: report.runId,
   }, null, 2) + '\n');
   console.log(`Dual browser approvals: 200 / 412, one audit entry, local draft preserved.\n${stdout}\nEvidence: ${workspace}`);
