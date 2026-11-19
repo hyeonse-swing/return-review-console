@@ -1,5 +1,6 @@
 import { init } from '@ihyeon/browser-error-log';
 import { Badge, Button } from '@hyeonse/design-system/primitives';
+import { DataTable } from '@hyeonse/design-system/display';
 import { Textarea } from '@hyeonse/design-system/fields';
 import { NativeDialog } from '@hyeonse/design-system/overlays';
 import { ArrowDownLeft, ArrowRight, Check, ChevronRight, CircleAlert, Clock3, ListChecks, PackageCheck, RotateCw, Search, UserRound, Warehouse } from 'lucide-react';
@@ -366,6 +367,11 @@ function App() {
   });
   const latestRecords = useRef(new Map<string, ReturnRecord>());
   const [filter, setFilter] = useState<StatusFilter>('all');
+  const [heldSort, setHeldSort] = useState<{ columnId: string; direction: 'asc' | 'desc' } | null>({
+    columnId: 'receivedAt', direction: 'asc',
+  });
+  const [selectedHeldRowId, setSelectedHeldRowId] = useState<string | null>(null);
+  const [heldPage, setHeldPage] = useState(1);
   const [search, setSearch] = useState('');
   const [mobileDetail, setMobileDetail] = useState(() => new URLSearchParams(location.search).has('id'));
   const detailHeading = useRef<HTMLHeadingElement>(null);
@@ -381,7 +387,25 @@ function App() {
   const visible = queue.filter(record => (filter === 'all' || record.status === filter)
     && (!query || [record.id, record.item, displayFixture(record.item, language), record.sku]
       .some(value => value.toLocaleLowerCase(language).includes(query))));
+  const held = queue.filter(item => item.status === 'held');
+  const sortedHeld = [...held].sort((left, right) => {
+    if (!heldSort || heldSort.columnId !== 'receivedAt') return 0;
+    const direction = heldSort.direction === 'asc' ? 1 : -1;
+    return direction * (Date.parse(left.receivedAt) - Date.parse(right.receivedAt))
+      || left.id.localeCompare(right.id);
+  });
+  const heldPageSize = 2;
+  const heldPageCount = Math.max(1, Math.ceil(sortedHeld.length / heldPageSize));
+  const visibleHeldPage = Math.min(heldPage, heldPageCount);
+  const heldRows = sortedHeld.slice((visibleHeldPage - 1) * heldPageSize, visibleHeldPage * heldPageSize);
   const record = detail?.record.id === selected ? detail.record : null;
+
+  useEffect(() => {
+    if (heldPage > heldPageCount) setHeldPage(heldPageCount);
+    if (selectedHeldRowId && !queue.some(item => item.status === 'held' && item.id === selectedHeldRowId)) {
+      setSelectedHeldRowId(null);
+    }
+  }, [heldPage, heldPageCount, selectedHeldRowId, queue]);
 
   useEffect(() => {
     if (!demoChannel) return;
@@ -528,6 +552,38 @@ function App() {
           <div><dt><Check size={17} aria-hidden="true" />{t.approved}</dt><dd>{counts.approved}<span>{t.countSuffix(counts.approved)}</span></dd></div>
           <div><dt><CircleAlert size={17} aria-hidden="true" />{t.rejected}</dt><dd>{counts.rejected}<span>{t.countSuffix(counts.rejected)}</span></dd></div>
         </dl>
+        <section className="held-review" data-mobile-detail={mobileDetail}>
+          <DataTable<ReturnRecord>
+            caption={t.heldQueue}
+            columns={[
+              { id: 'id', header: t.returnId, cell: item => item.id },
+              { id: 'receivedAt', header: t.receivedAt, sortable: true,
+                cell: item => formatDate(item.receivedAt, language) },
+              { id: 'item', header: t.product, cell: item => displayFixture(item.item, language) },
+              { id: 'reason', header: t.holdReason, cell: item =>
+                <span className="held-reason-cell">{[...item.events].reverse().find(event => event.label === '검수 보류')?.memo}</span> },
+              { id: 'status', header: t.reviewStatus, cell: item => <Status record={item} language={language} /> },
+              { id: 'details', header: t.detail, cell: item =>
+                <button type="button" className="open-held-detail" onClick={() => select(item.id)}>{t.openDetail}</button> },
+            ]}
+            rows={heldRows}
+            getRowId={item => item.id}
+            getRowLabel={item => displayFixture(item.item, language)}
+            sort={heldSort}
+            onSortChange={next => { setHeldSort(next); setHeldPage(1); }}
+            selectedRowId={selectedHeldRowId}
+            onSelectedRowIdChange={setSelectedHeldRowId}
+            page={visibleHeldPage}
+            pageCount={heldPageCount}
+            onPageChange={setHeldPage}
+            totalRows={held.length}
+            pageSize={heldPageSize}
+            locale={language}
+            state={queueProblem ? 'error' : queueLoading ? 'loading' : 'ready'}
+            emptyMessage={t.noHeldReturns}
+            errorMessage={t.queueError}
+          />
+        </section>
         <div className="workbench" data-mobile-detail={mobileDetail}>
           <section className="queue" aria-labelledby="queue-heading">
             <div className="queue-controls">

@@ -1,6 +1,6 @@
 {
   "name": "@ihyeon/return-review-console",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A local return review console with durable approval history",
   "homepage": "https://www.npmjs.com/package/@ihyeon/return-review-console",
   "repository": {
@@ -34,12 +34,12 @@
     "start": "node bin/return-review-console.mjs",
     "start:dev": "node server/index.mjs",
     "test": "node --test server/*.test.mjs",
-    "test:browser": "node checks/concurrency.mjs && npm run build:demo && node checks/reinspection.mjs",
+    "test:browser": "node checks/concurrency.mjs && npm run build:demo && node checks/reinspection.mjs && node checks/data-table.mjs",
     "test:package": "node checks/package-consumer.mjs",
     "qa:pr": "node qa/pr-regression.mjs"
   },
   "devDependencies": {
-    "@hyeonse/design-system": "https://design-system.hyeonse.dev/releases/hyeonse-design-system-0.4.8.tgz",
+    "@hyeonse/design-system": "https://design-system.hyeonse.dev/releases/hyeonse-design-system-0.5.0.tgz",
     "@ihyeon/browser-error-log": "0.2.18",
     "lucide-react": "1.75.0",
     "react": "19.3.0",

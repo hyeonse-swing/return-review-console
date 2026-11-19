@@ -39,6 +39,8 @@ Open a pending return, choose **Put on hold**, and enter a reason. The record mo
 
 The HTTP API uses `POST /api/returns/:id/hold`, `/reapprove`, and `/reject` with the same `If-Match` and optional `Idempotency-Key` as the existing direct approval endpoint. Request IDs bind to the decision, record, prior version, reviewer, and note. Previous SQLite records and approval receipts remain readable. The demo stores decisions in IndexedDB and keeps them across reloads in the same browser profile.
 
+The **Returns awaiting reinspection** table shows held records. Use the received-date heading to sort by date, with return ID breaking ties. Select one record with its checkbox, then move between pages to keep that selection. **Open details** opens a record without changing the checkbox selection. When a selected record is completed, the selection clears on refresh. Each page shows two records so the paging behavior is visible with three held samples.
+
 The server binds to the local loopback interface. The package is released under the MIT license and includes notices for bundled dependencies.
 
 ## 한국어
@@ -77,5 +79,7 @@ npx --yes @ihyeon/return-review-console@latest --lang ko --help
 검수 대기 건에서 **보류하기**를 눌러 필수 사유를 입력하면 **재검수 대기**가 됩니다. 다른 담당자는 목록과 처리 내역에서 사유를 읽고 **재검수 승인** 또는 **반려하기**를 선택합니다. 반려에는 사유가 필요합니다. 최종 결정을 내리면 해당 반품은 종결됩니다. 목록 필터와 건수는 검수 대기·재검수 대기·승인·반려를 각각 보여줍니다. 오래된 화면에서 결정을 내리면 최신 상태를 받고 작성 중인 초안은 보존합니다.
 
 HTTP API는 기존 직접 승인 주소와 같은 `If-Match` 및 선택적 `Idempotency-Key`를 사용해 `POST /api/returns/:id/hold`, `/reapprove`, `/reject`를 제공합니다. 요청 ID는 결정 종류·반품·이전 버전·담당자·메모에 묶입니다. 예전 SQLite 반품과 승인 영수증은 그대로 읽을 수 있습니다. 웹 데모는 IndexedDB에 결정을 보관해 같은 브라우저 프로필에서 새로고침한 뒤에도 볼 수 있습니다.
+
+**보류 재검수 목록**에서는 접수일 머리글을 눌러 날짜순으로 정렬합니다. 날짜가 같으면 반품 번호로 순서를 정합니다. 체크박스로 한 건을 선택한 뒤 페이지를 바꿔도 선택 상태가 유지되며 **상세 열기**는 선택을 바꾸지 않고 해당 반품을 엽니다. 선택한 건의 재검수가 끝나 목록에서 빠지면 새로고침할 때 선택이 해제됩니다. 한 페이지에 두 건을 표시하므로 보류 건을 세 건 만들면 페이지 이동을 확인할 수 있습니다.
 
 서버는 로컬 루프백에서 실행됩니다. MIT 라이선스로 배포하며 번들 의존성의 라이선스 고지를 함께 제공합니다.
