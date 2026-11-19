@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "flow-qa/suite-1",
+  "platform": "web",
+  "id": "return_approval_history",
+  "title": "동시 승인 후 내역 확인",
+  "requirements": [
+    { "id": "R_single_approval", "text": "같은 반품을 두 담당자가 승인해도 승인 기록은 한 건만 남는다." }
+  ],
+  "cases": [
+    {
+      "id": "TC_single_approval",
+      "title": "승인 충돌 후 승인 이벤트 한 건 확인",
+      "requirementIds": ["R_single_approval"],
+      "preconditions": ["두 브라우저가 RET-2418을 처리해 하나는 승인됐고 다른 하나는 충돌했다."],
+      "questions": [],
+      "steps": [
+        { "type": "open", "path": "/" },
+        { "type": "click", "locator": { "by": "testId", "value": "row-RET-2418" } },
+        { "type": "assertText", "locator": { "by": "testId", "value": "record-status" }, "expected": "승인 완료", "match": "equals" },
+        { "type": "assertText", "locator": { "by": "text", "value": "검수 승인" }, "expected": "검수 승인", "match": "equals" }
+      ]
+    }
+  ]
+}

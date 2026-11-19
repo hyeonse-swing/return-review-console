@@ -1,0 +1,182 @@
+export type Language = 'ko' | 'en';
+
+export const copy = {
+  ko: {
+    title: '반품 검수 · 리턴 데스크',
+    skip: '본문으로 이동',
+    workArea: '업무 영역',
+    brand: '리턴 데스크',
+    operations: '물류 운영',
+    review: '반품 검수',
+    demoWorkspace: '데모 워크스페이스',
+    language: '언어',
+    reviewer: '검수 담당자',
+    pageDescription: '입고된 반품의 상태를 확인하고 승인하세요.',
+    refresh: '새로고침',
+    allReturns: '전체 반품',
+    pending: '검수 대기',
+    approved: '승인 완료',
+    countSuffix: (_count: number) => '건',
+    queue: '반품 목록',
+    search: '반품 검색',
+    searchPlaceholder: '상품명, 반품 번호, SKU',
+    filterGroup: '검수 상태 필터',
+    all: '전체',
+    queueError: '반품 목록을 불러오지 못했어요. 새로고침해 주세요.',
+    queueLoading: '불러오는 중이에요.',
+    queueEmpty: '조건에 맞는 반품이 없어요.',
+    received: '입고',
+    detail: '반품 상세',
+    detailError: '상세를 불러오지 못했어요. 새로고침해 주세요.',
+    detailLoading: '상세를 불러오는 중이에요.',
+    detailEmpty: '반품을 선택해 주세요.',
+    intake: '입고 정보',
+    receivedAt: '입고 시각',
+    warehouse: '입고 센터',
+    reason: '반품 사유',
+    condition: '상품 상태',
+    history: '처리 내역',
+    approvalDone: '이 반품의 검수가 완료됐어요.',
+    approvalUnknown: '승인 결과를 확인하지 못했어요.',
+    approvalPrompt: '검수 결과를 확정할까요?',
+    approvalDoneHint: '처리 내역에서 승인 기록을 확인할 수 있어요.',
+    approvalUnknownHint: '같은 승인 요청을 다시 확인할 수 있어요.',
+    approvalPromptHint: '승인하면 처리 내역에 담당자와 메모가 남아요.',
+    approveReturn: '승인하기',
+    verifyApproval: '승인 결과 확인',
+    dialogTitle: '반품 승인',
+    closeAndHistory: '닫고 내역 보기',
+    later: '나중에 확인',
+    cancel: '취소',
+    approving: '승인 중',
+    retrySameRequest: '같은 요청 재시도',
+    confirmApproval: '승인 확정',
+    reviewerApproval: (name: string) => `${name} 담당자로 승인`,
+    failed: '승인 요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.',
+    uncertainNotice: '승인 결과를 확인하지 못했어요. 같은 요청으로 다시 확인해 주세요.',
+    conflictSelf: '이미 승인된 반품 건이에요.',
+    conflictOther: '다른 담당자가 먼저 처리했어요.',
+    conflictFollowup: ' 최신 상태를 불러왔고, 작성 중인 메모는 보관했어요.',
+    memo: '검수 메모',
+    memoHint: '선택 입력 · 최대 500자',
+    savedDraft: '보관된 검수 메모',
+    close: '닫기',
+  },
+  en: {
+    title: 'Return Review · Return Desk',
+    skip: 'Skip to main content',
+    workArea: 'Workspace',
+    brand: 'Return Desk',
+    operations: 'Warehouse operations',
+    review: 'Return review',
+    demoWorkspace: 'Demo workspace',
+    language: 'Language',
+    reviewer: 'Reviewer',
+    pageDescription: 'Review the condition of received returns and approve them.',
+    refresh: 'Refresh',
+    allReturns: 'All returns',
+    pending: 'Pending review',
+    approved: 'Approved',
+    countSuffix: (count: number) => count === 1 ? ' return' : ' returns',
+    queue: 'Return list',
+    search: 'Search returns',
+    searchPlaceholder: 'Product name, return ID, or SKU',
+    filterGroup: 'Review status filter',
+    all: 'All',
+    queueError: 'Could not load the return list. Please refresh.',
+    queueLoading: 'Loading returns…',
+    queueEmpty: 'No returns match your filters.',
+    received: 'Received',
+    detail: 'Return details',
+    detailError: 'Could not load the details. Please refresh.',
+    detailLoading: 'Loading return details…',
+    detailEmpty: 'Select a return to view its details.',
+    intake: 'Intake details',
+    receivedAt: 'Received at',
+    warehouse: 'Intake center',
+    reason: 'Return reason',
+    condition: 'Item condition',
+    history: 'Activity history',
+    approvalDone: 'This return has been reviewed.',
+    approvalUnknown: 'The approval result could not be confirmed.',
+    approvalPrompt: 'Confirm your review decision?',
+    approvalDoneHint: 'You can find the approval in the activity history.',
+    approvalUnknownHint: 'You can check the same approval request again.',
+    approvalPromptHint: 'Your name and memo will be saved in the activity history.',
+    approveReturn: 'Approve return',
+    verifyApproval: 'Check approval result',
+    dialogTitle: 'Approve return',
+    closeAndHistory: 'Close and view history',
+    later: 'Check later',
+    cancel: 'Cancel',
+    approving: 'Approving',
+    retrySameRequest: 'Retry the same request',
+    confirmApproval: 'Confirm approval',
+    reviewerApproval: (name: string) => `Approving as ${name}`,
+    failed: 'Could not process the approval. Please try again shortly.',
+    uncertainNotice: 'The approval result could not be confirmed. Check again with the same request.',
+    conflictSelf: 'This return has already been approved.',
+    conflictOther: 'Another reviewer processed this return first.',
+    conflictFollowup: ' The latest status is loaded, and your draft memo is saved.',
+    memo: 'Review memo',
+    memoHint: 'Optional · up to 500 characters',
+    savedDraft: 'Saved review memo',
+    close: 'Close',
+  },
+} as const;
+
+export function initialLanguage(): Language {
+  const query = new URLSearchParams(location.search).get('lang');
+  if (query === 'ko' || query === 'en') return query;
+  try {
+    const saved = localStorage.getItem('return-review:language');
+    if (saved === 'ko' || saved === 'en') return saved;
+  } catch { /* The language selector still works without local storage. */ }
+  return 'ko';
+}
+
+const knownNames = new Map([
+  ['민서', 'Minseo'],
+  ['지훈', 'Jihoon'],
+  ['입고 담당', 'Intake staff'],
+  ['검수 담당 A', 'Reviewer A'],
+]);
+
+export function displayName(name: string, language: Language): string {
+  return language === 'en' ? knownNames.get(name) ?? name : name;
+}
+
+const fixtureText: Record<string, string> = {
+  '워시드 코튼 재킷': 'Washed Cotton Jacket',
+  '클래식 레더 토트': 'Classic Leather Tote',
+  '리브 니트 카디건': 'Ribbed Knit Cardigan',
+  '와이드 데님 팬츠': 'Wide-Leg Denim Pants',
+  '캔버스 로우 스니커즈': 'Canvas Low-Top Sneakers',
+  '오버사이즈 스트라이프 셔츠': 'Oversized Stripe Shirt',
+  '사이즈가 맞지 않음': 'Size does not fit',
+  '상품 색상이 예상과 다름': 'Color differs from expected',
+  '중복 주문': 'Duplicate order',
+  '기장 차이': 'Length differs from expected',
+  '발볼이 맞지 않음': 'Width does not fit',
+  '원단 질감이 예상과 다름': 'Fabric texture differs from expected',
+  '택 부착 · 착용 흔적 없음': 'Tags attached · no signs of wear',
+  '보호 포장 유지 · 사용 흔적 없음': 'Protective packaging intact · unused',
+  '미개봉': 'Unopened',
+  '택 부착 · 세탁 흔적 없음': 'Tags attached · no signs of washing',
+  '실내 시착 · 밑창 깨끗함': 'Tried on indoors · clean soles',
+  '택 부착 · 오염 없음': 'Tags attached · no stains',
+  '성수 입고센터': 'Seongsu Intake Center',
+  '구로 입고센터': 'Guro Intake Center',
+  '입고 등록': 'Intake registered',
+  '검수 승인': 'Review approved',
+};
+
+export function displayFixture(value: string, language: Language): string {
+  return language === 'en' && Object.hasOwn(fixtureText, value) ? fixtureText[value] : value;
+}
+
+export function displayMemo(eventId: string, memo: string, language: Language): string {
+  return language === 'en' && eventId === 'EV-2411-2' && memo === '택과 제품 상태 확인'
+    ? 'Checked the tags and item condition'
+    : memo;
+}

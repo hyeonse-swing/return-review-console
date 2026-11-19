@@ -1,0 +1,106 @@
+name: Verify and publish
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.22.1
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      - run: node --test scripts/npm-release.test.mjs
+      - name: Install browser dependencies
+        run: |
+          npx --no-install flow-qa browser install --with-deps
+          npx --no-install playwright install --with-deps chromium firefox webkit
+      - run: npm run test:browser
+      - run: npm run qa:pr
+      - name: Pack and check the release artifact
+        run: |
+          set -euo pipefail
+          mkdir -p output/release
+          npm pack --ignore-scripts --pack-destination output/release
+          version="$(node -p "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version")"
+          tarball="output/release/ihyeon-return-review-console-${version}.tgz"
+          test -f "$tarball"
+          npm run test:package -- "$tarball" output/package-ci
+          node -e "const evidence = require('./output/package-ci/evidence.json'); if (evidence.status !== 'passed' || evidence.browserCounts.passed !== 3) process.exit(1)"
+          sha256sum "$tarball" > output/release/SHA256SUMS
+      - name: Keep QA evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: return-approval-qa
+          path: |
+            qa/.runs/
+            output/browser/
+            output/package-ci/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Keep verified release artifact
+        if: github.repository == 'hyeonse-swing/return-review-console' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-package-${{ github.sha }}
+          path: output/release/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    if: github.repository == 'hyeonse-swing/return-review-console' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: npm-publish-${{ github.repository }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.22.1
+          registry-url: https://registry.npmjs.org
+      - name: Check npm release version
+        id: release
+        run: node scripts/npm-release.mjs gate
+      - name: Download verified artifact
+        if: steps.release.outputs.should_publish == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-package-${{ github.sha }}
+          path: output/release
+      - name: Publish exact tested tarball with OIDC
+        if: steps.release.outputs.should_publish == 'true'
+        run: |
+          set -euo pipefail
+          sha256sum --check output/release/SHA256SUMS
+          tarball="./output/release/ihyeon-return-review-console-${{ steps.release.outputs.version }}.tgz"
+          test -f "$tarball"
+          npm install --global npm@11.21.0
+          npm publish "$tarball" --access public --provenance --ignore-scripts
+      - name: Confirm registry artifact and latest tag
+        if: steps.release.outputs.should_publish == 'true'
+        run: node scripts/npm-release.mjs verify "output/release/ihyeon-return-review-console-${{ steps.release.outputs.version }}.tgz"
