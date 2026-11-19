@@ -59,7 +59,7 @@ p, h1, h2, h3, dl, dd, ul, ol { margin: 0; }
 .web-demo .hds-button { min-height: 44px; }
 .demo-links { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 16px; font-size: 13px; }
 .demo-links a { display: inline-flex; align-items: center; min-height: 44px; color: var(--green); text-underline-offset: 3px; }
-.summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 23px 0 24px; border-block: 1px solid var(--line); background: var(--surface); }
+.summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 23px 0 24px; border-block: 1px solid var(--line); background: var(--surface); }
 .summary div { min-width: 0; padding: 16px clamp(12px, 1.85vw, 26px) 14px; }
 .summary div + div { border-left: 1px solid var(--line); }
 .summary dt { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; font-weight: 650; }
@@ -92,11 +92,14 @@ html[lang='en'] .summary dd span { margin-left: 0; }
 .row-id, .sku, .detail-kicker > span:first-child { color: var(--muted); font: 11px var(--mono); letter-spacing: .035em; }
 .row-copy strong { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
 .row-date { color: var(--muted); font-size: 11px; }
+.row-hold-reason { color: var(--amber); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
 .row-end { display: flex; align-items: center; color: var(--muted); gap: 5px; flex: none; }
 .return-status.hds-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; border: none; border-radius: 3px; padding: 4px 6px; line-height: 1.2; white-space: nowrap; }
 .return-status > span { background: currentColor; width: 5px; height: 5px; border-radius: 50%; }
 .return-status--pending.hds-badge { background: var(--amber-wash); color: var(--amber); }
+.return-status--held.hds-badge { background: var(--amber-wash); color: var(--amber); }
 .return-status--approved.hds-badge { background: var(--green-wash); color: var(--green); }
+.return-status--rejected.hds-badge { background: #f9e9e4; color: #8f2f1d; }
 .queue-message { padding: 24px 18px; color: var(--muted); font-size: 14px; line-height: 1.5; }
 
 .detail { min-width: 0; border-left: 1px solid var(--line); }
@@ -124,6 +127,11 @@ html[lang='en'] .summary dd span { margin-left: 0; }
 .approve-button svg { flex: none; }
 .draft-note { padding: 12px clamp(18px, 2.6vw, 32px); background: var(--amber-wash); color: var(--amber); font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .draft-note strong { display: block; }
+.hold-reason { display: grid; gap: 4px; margin: 0 clamp(18px, 2.6vw, 32px) 14px; padding: 12px; background: var(--amber-wash); color: var(--amber); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.decision-actions { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px clamp(18px, 2.6vw, 32px); background: var(--surface); }
+.decision-actions:empty { display: none; }
+.decision-bar .hds-button { display: inline-flex; align-items: center; gap: 8px; }
+.decision-complete { padding: 16px clamp(18px, 2.6vw, 32px); border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
 .reviewer-line { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; margin-bottom: 12px; }
 .notice { display: flex; align-items: flex-start; gap: 8px; padding: 11px; margin-bottom: 12px; background: var(--amber-wash); color: var(--amber); font-size: 13px; line-height: 1.55; }
 .notice svg { flex: none; margin-top: 1px; }
@@ -149,6 +157,9 @@ html[lang='en'] .summary dd span { margin-left: 0; }
   .summary dt { gap: 4px; font-size: 11px; }
   .summary dt svg { width: 13px; }
   .summary dd { font-size: 23px; }
+  .summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .summary div:nth-child(4) { border-left: 0; }
+  .summary div:nth-child(n+4) { border-top: 1px solid var(--line); }
   .workbench { display: block; }
   .workbench[data-mobile-detail='true'] .queue, .workbench[data-mobile-detail='false'] .detail { display: none; }
   .detail { border-left: 0; }

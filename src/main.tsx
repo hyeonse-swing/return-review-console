@@ -5,8 +5,8 @@ import { NativeDialog } from '@hyeonse/design-system/overlays';
 import { ArrowDownLeft, ArrowRight, Check, ChevronRight, CircleAlert, Clock3, ListChecks, PackageCheck, RotateCw, Search, UserRound, Warehouse } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { approve, isWebDemo, loadDetail, loadQueue, resetWebDemo } from './api';
-import type { ReturnDetail, ReturnRecord } from './api';
+import { approve, isWebDemo, loadDetail, loadQueue, resetWebDemo, submitReview } from './api';
+import type { ReturnDetail, ReturnRecord, ReviewCommand } from './api';
 import { copy, displayFixture, displayMemo, displayName, initialLanguage } from './i18n';
 import type { Language } from './i18n';
 import '@hyeonse/design-system/tokens.css';
@@ -32,7 +32,7 @@ const reviewers = ['민서', '지훈'] as const;
 type Reviewer = typeof reviewers[number];
 type PendingApproval = { key: string; etag: string; memo: string };
 type StatusFilter = 'all' | ReturnRecord['status'];
-const filters: StatusFilter[] = ['all', 'pending', 'approved'];
+const filters: StatusFilter[] = ['all', 'pending', 'held', 'approved', 'rejected'];
 const formatters = {
   ko: {
     long: new Intl.DateTimeFormat('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Asia/Seoul' }),
@@ -51,8 +51,8 @@ function formatDate(iso: string, language: Language, short = false) {
   return formatters[language][short ? 'short' : 'long'].format(new Date(iso));
 }
 
-function reviewDraft(id: string, reviewer: Reviewer, value?: string): string {
-  const key = `return-review:draft:${id}:${reviewer}`;
+function reviewDraft(id: string, reviewer: Reviewer, value?: string, command: ReviewCommand = 'approve'): string {
+  const key = `return-review:draft:${id}:${reviewer}${command === 'approve' ? '' : `:${command}`}`;
   try {
     if (value === undefined) return sessionStorage.getItem(key) ?? '';
     if (value) sessionStorage.setItem(key, value);
@@ -61,13 +61,13 @@ function reviewDraft(id: string, reviewer: Reviewer, value?: string): string {
   return value ?? '';
 }
 
-function pendingApprovalKey(id: string, reviewer: Reviewer) {
-  return `return-review:pending-approval:${id}:${reviewer}`;
+function pendingApprovalKey(id: string, reviewer: Reviewer, command: ReviewCommand = 'approve') {
+  return `return-review:pending-${command === 'approve' ? 'approval' : command}:${id}:${reviewer}`;
 }
 
-function readPendingApproval(id: string, reviewer: Reviewer): PendingApproval | null {
+function readPendingApproval(id: string, reviewer: Reviewer, command: ReviewCommand = 'approve'): PendingApproval | null {
   try {
-    const value = sessionStorage.getItem(pendingApprovalKey(id, reviewer));
+    const value = sessionStorage.getItem(pendingApprovalKey(id, reviewer, command));
     if (!value) return null;
     const operation: Partial<PendingApproval> | null = JSON.parse(value);
     if (typeof operation?.key === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(operation.key)
@@ -79,9 +79,9 @@ function readPendingApproval(id: string, reviewer: Reviewer): PendingApproval | 
   return null;
 }
 
-function writePendingApproval(id: string, reviewer: Reviewer, operation: PendingApproval | null) {
+function writePendingApproval(id: string, reviewer: Reviewer, operation: PendingApproval | null, command: ReviewCommand = 'approve') {
   try {
-    const key = pendingApprovalKey(id, reviewer);
+    const key = pendingApprovalKey(id, reviewer, command);
     if (operation) sessionStorage.setItem(key, JSON.stringify(operation));
     else sessionStorage.removeItem(key);
   } catch { /* The current component retains the request when storage is unavailable. */ }
@@ -91,7 +91,7 @@ function clearDemoReviewState() {
   try {
     for (let index = sessionStorage.length - 1; index >= 0; index--) {
       const key = sessionStorage.key(index);
-      if (key?.startsWith('return-review:draft:') || key?.startsWith('return-review:pending-approval:')) {
+      if (key?.startsWith('return-review:draft:') || key?.startsWith('return-review:pending-')) {
         sessionStorage.removeItem(key);
       }
     }
@@ -106,7 +106,7 @@ function updateLocation(id: string | null) {
 }
 
 function Status({ record, language, detailed = false }: { record: ReturnRecord; language: Language; detailed?: boolean }) {
-  return <Badge className={`return-status return-status--${record.status}`} tone={record.status === 'pending' ? 'warning' : 'success'}
+  return <Badge className={`return-status return-status--${record.status}`} tone={record.status === 'approved' ? 'success' : 'warning'}
     size="sm" data-testid={detailed ? 'record-status' : undefined}>
     <span aria-hidden="true" />{copy[language][record.status]}
   </Badge>;
@@ -129,7 +129,7 @@ function Approval({ current, reviewer, language, onUpdate }: {
   const updatedStatus = useRef<HTMLParagraphElement>(null);
   const moveFocus = useRef(false);
   const dialogNotice = useRef<HTMLParagraphElement>(null);
-  const approved = record.status === 'approved';
+  const approved = record.status !== 'pending';
   const conflicted = message === 'conflict';
   const canConfirm = !approved || pendingOperation !== null;
   const uncertain = pendingOperation !== null && !busy;
@@ -152,6 +152,8 @@ function Approval({ current, reviewer, language, onUpdate }: {
     if (!next && conflicted) moveFocus.current = true;
     setOpen(next);
   }
+
+  if ((record.status === 'held' || record.status === 'rejected') && !pendingOperation && !conflicted) return null;
 
   async function confirm() {
     if (submitting.current || !canConfirm) return;
@@ -212,6 +214,92 @@ function Approval({ current, reviewer, language, onUpdate }: {
     </div>
     {approved && !open && !uncertain && memo && <p className="draft-note"><strong>{t.savedDraft}</strong> {memo}</p>}
   </>;
+}
+
+function ReviewDecision({ command, current, reviewer, language, onUpdate }: {
+  command: Exclude<ReviewCommand, 'approve'>;
+  current: ReturnDetail;
+  reviewer: Reviewer;
+  language: Language;
+  onUpdate: (updated: ReturnDetail) => void;
+}) {
+  const { record } = current;
+  const t = copy[language];
+  const [open, setOpen] = useState(false);
+  const [pendingOperation, setPendingOperation] = useState(() => readPendingApproval(record.id, reviewer, command));
+  const [memo, setMemo] = useState(() => pendingOperation?.memo ?? reviewDraft(record.id, reviewer, undefined, command));
+  const [message, setMessage] = useState<'conflict' | 'failed' | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
+  const notice = useRef<HTMLParagraphElement>(null);
+  const allowed = command === 'hold' ? record.status === 'pending' : record.status === 'held';
+  const required = command === 'hold' || command === 'reject';
+  const uncertain = pendingOperation !== null && !busy;
+  const label = command === 'hold' ? t.holdReturn : command === 'reject' ? t.rejectReturn : t.reapproveReturn;
+  const title = command === 'hold' ? t.holdDialog : command === 'reject' ? t.rejectDialog : t.reapproveDialog;
+  const confirmLabel = command === 'hold' ? t.confirmHold : command === 'reject' ? t.confirmReject : t.confirmReapprove;
+  const busyLabel = command === 'hold' ? t.holding : command === 'reject' ? t.rejecting : t.reapproving;
+  const hint = command === 'hold' ? t.holdReasonHint : command === 'reject' ? t.rejectReasonHint : t.memoHint;
+
+  useEffect(() => {
+    if ((message || uncertain) && open) notice.current?.focus();
+  }, [message, uncertain, open]);
+
+  async function confirm() {
+    if (submitting.current || (!allowed && !pendingOperation) || (required && !memo.trim() && !pendingOperation)) return;
+    submitting.current = true;
+    setBusy(true);
+    setMessage(null);
+    const operation = pendingOperation ?? { key: crypto.randomUUID(), etag: current.etag, memo };
+    writePendingApproval(record.id, reviewer, operation, command);
+    setPendingOperation(operation);
+    const result = await submitReview(command, { ...current, etag: operation.etag }, reviewer, operation.memo, operation.key);
+    submitting.current = false;
+    setBusy(false);
+    if (result.kind === 'uncertain') return;
+    writePendingApproval(record.id, reviewer, null, command);
+    setPendingOperation(null);
+    if (result.kind === 'failed') {
+      setMessage('failed');
+      return;
+    }
+    onUpdate({ record: result.record, etag: result.etag });
+    if (result.kind === 'conflict') {
+      setMessage('conflict');
+      return;
+    }
+    reviewDraft(record.id, reviewer, '', command);
+    setMemo('');
+    setOpen(false);
+  }
+
+  if (!allowed && !pendingOperation && message !== 'conflict') return null;
+  return <div className="decision-bar">
+    <NativeDialog title={title} description={`${record.id} · ${displayFixture(record.item, language)}`} closeLabel={t.close}
+      open={open} onOpenChange={next => {
+        if (submitting.current) return;
+        if (next || message === 'conflict') setMessage(null);
+        setOpen(next);
+      }}
+      trigger={<Button variant={command === 'reject' || command === 'hold' ? 'secondary' : 'primary'} size="lg">
+        {uncertain ? t.verifyDecision : label}<ArrowRight size={17} />
+      </Button>}
+      footer={<>
+        <Button variant="secondary" onClick={() => { setOpen(false); if (message === 'conflict') setMessage(null); }} disabled={busy}>{message === 'conflict' ? t.closeAndHistory : t.cancel}</Button>
+        {message !== 'conflict' && <Button type="submit" form={`review-${command}-form`} loading={busy} loadingLabel={busyLabel}
+          disabled={!uncertain && required && !memo.trim()}>{uncertain ? t.retrySameRequest : confirmLabel}</Button>}
+      </>}>
+      <form id={`review-${command}-form`} className="approval-form" onSubmit={event => { event.preventDefault(); void confirm(); }}>
+        <p className="reviewer-line"><UserRound size={16} aria-hidden="true" />{t.reviewerApproval(displayName(reviewer, language))}</p>
+        {message === 'failed' && <p className="notice notice--error" role="alert" ref={notice} tabIndex={-1}><CircleAlert size={18} aria-hidden="true" />{t.decisionFailed}</p>}
+        {uncertain && <p className="notice notice--error" role="alert" ref={notice} tabIndex={-1}><CircleAlert size={18} aria-hidden="true" />{t.decisionUncertain}</p>}
+        {message === 'conflict' && <p className="notice" role="alert" ref={notice} tabIndex={-1}><CircleAlert size={18} aria-hidden="true" />{t.conflictOther}{t.conflictFollowup}</p>}
+        <Textarea label={required ? t.decisionReason : t.memo} hint={hint} rows={4} maxLength={500}
+          value={memo} readOnly={message === 'conflict' || busy || uncertain}
+          onChange={event => setMemo(reviewDraft(record.id, reviewer, event.target.value, command))} />
+      </form>
+    </NativeDialog>
+  </div>;
 }
 
 function DemoNotice({ language, onReset }: { language: Language; onReset: () => void }) {
@@ -283,7 +371,12 @@ function App() {
   const detailHeading = useRef<HTMLHeadingElement>(null);
   const queueHeading = useRef<HTMLHeadingElement>(null);
   const selectedButton = useRef<HTMLButtonElement>(null);
-  const pending = queue.filter(record => record.status === 'pending').length;
+  const counts = {
+    pending: queue.filter(record => record.status === 'pending').length,
+    held: queue.filter(record => record.status === 'held').length,
+    approved: queue.filter(record => record.status === 'approved').length,
+    rejected: queue.filter(record => record.status === 'rejected').length,
+  };
   const query = search.trim().toLocaleLowerCase(language);
   const visible = queue.filter(record => (filter === 'all' || record.status === filter)
     && (!query || [record.id, record.item, displayFixture(record.item, language), record.sku]
@@ -430,8 +523,10 @@ function App() {
         {isWebDemo && <DemoNotice language={language} onReset={resetView} />}
         <dl className="summary">
           <div><dt><ListChecks size={16} aria-hidden="true" />{t.allReturns}</dt><dd>{queue.length}<span>{t.countSuffix(queue.length)}</span></dd></div>
-          <div><dt><Clock3 size={16} aria-hidden="true" />{t.pending}</dt><dd>{pending}<span>{t.countSuffix(pending)}</span></dd></div>
-          <div><dt><Check size={17} aria-hidden="true" />{t.approved}</dt><dd>{queue.length - pending}<span>{t.countSuffix(queue.length - pending)}</span></dd></div>
+          <div><dt><Clock3 size={16} aria-hidden="true" />{t.pending}</dt><dd>{counts.pending}<span>{t.countSuffix(counts.pending)}</span></dd></div>
+          <div><dt><CircleAlert size={17} aria-hidden="true" />{t.held}</dt><dd>{counts.held}<span>{t.countSuffix(counts.held)}</span></dd></div>
+          <div><dt><Check size={17} aria-hidden="true" />{t.approved}</dt><dd>{counts.approved}<span>{t.countSuffix(counts.approved)}</span></dd></div>
+          <div><dt><CircleAlert size={17} aria-hidden="true" />{t.rejected}</dt><dd>{counts.rejected}<span>{t.countSuffix(counts.rejected)}</span></dd></div>
         </dl>
         <div className="workbench" data-mobile-detail={mobileDetail}>
           <section className="queue" aria-labelledby="queue-heading">
@@ -453,7 +548,8 @@ function App() {
                   data-testid={`row-${item.id}`}
                   aria-current={item.id === selected ? 'true' : undefined} onClick={() => select(item.id)}>
                   <span className="row-copy"><span className="row-id">{item.id}</span><strong>{displayFixture(item.item, language)}</strong>
-                    <span className="row-date">{language === 'ko' ? `${formatDate(item.receivedAt, language, true)} ${t.received}` : `${t.received} ${formatDate(item.receivedAt, language, true)}`}</span></span>
+                    <span className="row-date">{language === 'ko' ? `${formatDate(item.receivedAt, language, true)} ${t.received}` : `${t.received} ${formatDate(item.receivedAt, language, true)}`}</span>
+                    {item.status === 'held' && <span className="row-hold-reason">{t.holdReason}: {item.events.at(-1)?.memo}</span>}</span>
                   <span className="row-end"><Status record={item} language={language} /><ChevronRight size={17} aria-hidden="true" /></span>
                 </button>
               </li>)}</ul>}
@@ -485,13 +581,20 @@ function App() {
                   <section className="history" aria-labelledby="history-heading">
                     <h3 id="history-heading">{t.history}</h3>
                     <ol>{[...record.events].reverse().map(event => <li key={event.id}>
-                      <span className="timeline-icon" aria-hidden="true">{event.label === '검수 승인' ? <Check size={14} /> : <ArrowDownLeft size={14} />}</span>
+                      <span className="timeline-icon" aria-hidden="true">{event.label.includes('승인') ? <Check size={14} /> : <ArrowDownLeft size={14} />}</span>
                       <div><strong>{displayFixture(event.label, language)}</strong><p>{displayName(event.actor, language)} <span aria-hidden="true">·</span> {formatDate(event.at, language)}</p>
                         {event.memo && <p className="event-memo">{displayMemo(event.id, event.memo, language)}</p>}</div>
                     </li>)}</ol>
                   </section>
                 </div>
+                {record.status === 'held' && <p className="hold-reason"><strong>{t.holdReason}</strong>{[...record.events].reverse().find(event => event.label === '검수 보류')?.memo}</p>}
                 <Approval key={`${record.id}:${reviewer}`} current={detail} reviewer={reviewer} language={language} onUpdate={update} />
+                <div className="decision-actions" aria-label={t.reviewDecisions}>
+                  <ReviewDecision key={`${record.id}:${reviewer}:hold`} command="hold" current={detail} reviewer={reviewer} language={language} onUpdate={update} />
+                  <ReviewDecision key={`${record.id}:${reviewer}:reapprove`} command="reapprove" current={detail} reviewer={reviewer} language={language} onUpdate={update} />
+                  <ReviewDecision key={`${record.id}:${reviewer}:reject`} command="reject" current={detail} reviewer={reviewer} language={language} onUpdate={update} />
+                </div>
+                {record.status === 'rejected' && <p className="decision-complete">{t.decisionComplete}</p>}
               </> : <p className="queue-message" role="status">{selected ? t.detailLoading : t.detailEmpty}</p>}
           </section>
         </div>

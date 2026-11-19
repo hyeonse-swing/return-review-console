@@ -1,6 +1,6 @@
 {
   "name": "@ihyeon/return-review-console",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "A local return review console with durable approval history",
   "homepage": "https://www.npmjs.com/package/@ihyeon/return-review-console",
   "repository": {
@@ -9,7 +9,9 @@
   },
   "license": "MIT",
   "type": "module",
-  "engines": { "node": ">=22.13.0" },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "bin": {
     "return-review-console": "./bin/return-review-console.mjs"
   },
@@ -32,7 +34,7 @@
     "start": "node bin/return-review-console.mjs",
     "start:dev": "node server/index.mjs",
     "test": "node --test server/*.test.mjs",
-    "test:browser": "node checks/concurrency.mjs",
+    "test:browser": "node checks/concurrency.mjs && npm run build:demo && node checks/reinspection.mjs",
     "test:package": "node checks/package-consumer.mjs",
     "qa:pr": "node qa/pr-regression.mjs"
   },

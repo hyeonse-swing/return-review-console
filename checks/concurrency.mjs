@@ -119,7 +119,7 @@ try {
   await delayed.getByTestId('row-RET-2423').getByText('승인 완료').waitFor();
   await delayed.waitForFunction(() => {
     const values = [...document.querySelectorAll('.summary dd')].map(node => node.textContent?.replace(/\s+/g, ''));
-    return values.join('|') === '6건|3건|3건';
+    return values.join('|') === '6건|3건|0건|3건|0건';
   });
 
   const interrupted = await browser.newPage(desktop);

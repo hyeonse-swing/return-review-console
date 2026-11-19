@@ -1,5 +1,5 @@
 import fixtures from '../shared/fixtures.json';
-import type { ReturnDetail, ReturnRecord } from './api';
+import type { ReturnDetail, ReturnRecord, ReviewCommand } from './api';
 
 type ApprovalResult =
   | { kind: 'approved'; record: ReturnRecord; etag: string }
@@ -12,6 +12,7 @@ interface Receipt {
   ifMatch: string;
   reviewer: string;
   memo: string;
+  command?: ReviewCommand;
   record: ReturnRecord;
   etag: string;
 }
@@ -23,9 +24,10 @@ let databasePromise: Promise<IDBDatabase> | undefined;
 function openDatabase(): Promise<IDBDatabase> {
   if (!databasePromise) {
     databasePromise = new Promise((resolve, reject) => {
-      const request = indexedDB.open(databaseName, 1);
+      const request = indexedDB.open(databaseName, 2);
       request.onupgradeneeded = () => {
         const database = request.result;
+        if (database.objectStoreNames.contains('records')) return;
         const records = database.createObjectStore('records', { keyPath: 'id' });
         database.createObjectStore('receipts', { keyPath: 'key' });
         const metadata = database.createObjectStore('metadata');
@@ -112,10 +114,11 @@ export async function demoDetail(id: string, signal: AbortSignal): Promise<Retur
   return detail;
 }
 
-export async function demoApprove(detail: ReturnDetail, reviewer: string, memo: string, operationKey: string): Promise<ApprovalResult> {
+export async function demoReview(command: ReviewCommand, detail: ReturnDetail, reviewer: string, memo: string, operationKey: string): Promise<ApprovalResult> {
   const name = reviewer.trim();
   const note = memo.trim();
   if (!name || name.length > 40 || note.length > 500 ||
+      ((command === 'hold' || command === 'reject') && !note) ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationKey)) {
     return { kind: 'failed' };
   }
@@ -128,36 +131,43 @@ export async function demoApprove(detail: ReturnDetail, reviewer: string, memo: 
     const receipt = await requestValue(receipts.get(operationKey.toLowerCase()) as IDBRequest<Receipt | undefined>);
     if (!current) return { kind: 'failed' };
     if (receipt) {
-      if (receipt.recordId !== current.id || receipt.ifMatch !== detail.etag ||
+      if ((receipt.command ?? 'approve') !== command || receipt.recordId !== current.id || receipt.ifMatch !== detail.etag ||
           receipt.reviewer !== name || receipt.memo !== note) return { kind: 'failed' };
       return { kind: 'approved', record: receipt.record, etag: receipt.etag };
     }
 
     const currentEtag = etag(generation, current);
-    if (detail.etag !== currentEtag || current.status === 'approved') {
+    const allowed = command === 'approve' || command === 'hold'
+      ? current.status === 'pending' : current.status === 'held';
+    if (detail.etag !== currentEtag || !allowed) {
       return { kind: 'conflict', record: current, etag: currentEtag };
     }
 
-    const approved: ReturnRecord = {
+    const updated: ReturnRecord = {
       ...current,
-      status: 'approved',
+      status: command === 'hold' ? 'held' : command === 'reject' ? 'rejected' : 'approved',
       version: current.version + 1,
       events: [...current.events, {
         id: crypto.randomUUID(),
         at: new Date().toISOString(),
         actor: name,
-        label: '검수 승인',
+        label: command === 'hold' ? '검수 보류' : command === 'reject' ? '재검수 반려'
+          : command === 'reapprove' ? '재검수 승인' : '검수 승인',
         ...(note ? { memo: note } : {}),
       }],
     };
-    const approvedEtag = etag(generation, approved);
-    records.put(approved);
+    const updatedEtag = etag(generation, updated);
+    records.put(updated);
     receipts.put({
       key: operationKey.toLowerCase(), recordId: current.id, ifMatch: detail.etag,
-      reviewer: name, memo: note, record: approved, etag: approvedEtag,
+      reviewer: name, memo: note, command, record: updated, etag: updatedEtag,
     } satisfies Receipt);
-    return { kind: 'approved', record: approved, etag: approvedEtag };
+    return { kind: 'approved', record: updated, etag: updatedEtag };
   });
+}
+
+export function demoApprove(detail: ReturnDetail, reviewer: string, memo: string, operationKey: string): Promise<ApprovalResult> {
+  return demoReview('approve', detail, reviewer, memo, operationKey);
 }
 
 export async function resetDemo(): Promise<void> {

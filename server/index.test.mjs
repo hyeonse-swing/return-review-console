@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createReturnServer } from './index.mjs';
+import fixtures from '../shared/fixtures.json' with { type: 'json' };
 
 async function withServer(qa, run, databasePath) {
   const server = createReturnServer({ qa, databasePath });
@@ -60,6 +61,103 @@ function approve(url, id, etag, reviewer, memo, key) {
     body: JSON.stringify({ reviewer, memo }),
   });
 }
+
+function review(url, id, command, etag, reviewer, memo, key = randomUUID()) {
+  return fetch(`${url}/api/returns/${id}/${command}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'If-Match': etag, 'Idempotency-Key': key },
+    body: JSON.stringify({ reviewer, memo }),
+  });
+}
+
+test('hold then reinspection preserves both decisions and rejects legacy approval on held records', async () => {
+  await withServer(false, async url => {
+    const before = await getRecord(url);
+    const holdKey = randomUUID();
+    const hold = await review(url, 'RET-2418', 'hold', before.etag, '민서', '실밥 상태 확인 필요', holdKey);
+    assert.equal(hold.status, 200);
+    const held = await hold.json();
+    assert.equal(held.record.status, 'held');
+    assert.equal(held.record.version, 2);
+    assert.equal(held.record.events.at(-1).label, '검수 보류');
+    assert.equal(held.record.events.at(-1).memo, '실밥 상태 확인 필요');
+
+    const legacy = await approve(url, 'RET-2418', hold.headers.get('etag'), '지훈', '기존 클라이언트 승인');
+    assert.equal(legacy.status, 409);
+    assert.equal((await legacy.json()).code, 'INVALID_TRANSITION');
+
+    const duplicate = await review(url, 'RET-2418', 'hold', before.etag, '민서', '실밥 상태 확인 필요', holdKey);
+    assert.equal(duplicate.status, 200);
+    assert.deepEqual((await duplicate.json()).record, held.record);
+    const reused = await review(url, 'RET-2418', 'reject', before.etag, '민서', '실밥 상태 확인 필요', holdKey);
+    assert.equal(reused.status, 409);
+    assert.equal((await reused.json()).code, 'IDEMPOTENCY_KEY_REUSED');
+
+    const etag = hold.headers.get('etag');
+    const outcomes = await Promise.all([
+      review(url, 'RET-2418', 'reapprove', etag, '지훈', '재검수에서 상태 확인'),
+      review(url, 'RET-2418', 'reject', etag, '민서', '상태 불량 확인'),
+    ]);
+    assert.deepEqual(outcomes.map(response => response.status).sort(), [200, 412]);
+    const latest = await getRecord(url);
+    assert.equal(latest.record.version, 3);
+    assert.equal(latest.record.events.length, before.record.events.length + 2);
+    assert.equal(latest.record.events.at(-2).label, '검수 보류');
+    assert.ok(['approved', 'rejected'].includes(latest.record.status));
+    assert.equal((await review(url, 'RET-2418', 'hold', latest.etag, '민서', '재보류')).status, 409);
+  });
+});
+
+test('required hold and rejection reasons reject empty and oversized input without state changes', async () => {
+  await withServer(false, async url => {
+    const before = await getRecord(url);
+    for (const value of ['', '  ', 'x'.repeat(501)]) {
+      const result = await review(url, 'RET-2418', 'hold', before.etag, '민서', value);
+      assert.equal(result.status, 400);
+    }
+    assert.deepEqual(await getRecord(url), before);
+    const hold = await review(url, 'RET-2418', 'hold', before.etag, '민서', '확인 필요');
+    assert.equal(hold.status, 200);
+    const held = await getRecord(url);
+    assert.equal((await review(url, 'RET-2418', 'reject', held.etag, '지훈', ' ')).status, 400);
+    assert.deepEqual(await getRecord(url), held);
+  });
+});
+
+test('0.1.4 SQLite receipts and approvals survive migration to reinspection decisions', async () => {
+  await withDatabase(async databasePath => {
+    const old = new DatabaseSync(databasePath);
+    old.exec(`CREATE TABLE return_records (id TEXT PRIMARY KEY, ordinal INTEGER NOT NULL, payload TEXT NOT NULL);
+      CREATE TABLE approval_receipts (
+        idempotency_key TEXT PRIMARY KEY, record_id TEXT NOT NULL, if_match TEXT NOT NULL,
+        reviewer TEXT NOT NULL, memo TEXT NOT NULL, response_json TEXT NOT NULL, etag TEXT NOT NULL
+      );`);
+    const key = randomUUID();
+    const approved = { ...fixtures[0], status: 'approved', version: 2, events: [
+      ...fixtures[0].events, { id: randomUUID(), at: new Date().toISOString(), actor: '민서', label: '검수 승인', memo: '기존 승인' },
+    ] };
+    old.prepare('INSERT INTO return_records VALUES (?, ?, ?)').run(approved.id, 0, JSON.stringify(approved));
+    old.prepare('INSERT INTO approval_receipts VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+      key, approved.id, '"1"', '민서', '기존 승인', JSON.stringify(approved), '"2"',
+    );
+    old.close();
+
+    await withServer(false, async url => {
+      assert.deepEqual((await getRecord(url)).record, approved);
+      const replay = await approve(url, approved.id, '"1"', '민서', '기존 승인', key);
+      assert.equal(replay.status, 200);
+      assert.deepEqual((await replay.json()).record, approved);
+      const pending = await getRecord(url, 'RET-2421');
+      const hold = await review(url, 'RET-2421', 'hold', pending.etag, '지훈', '실물 재확인');
+      assert.equal(hold.status, 200);
+      assert.equal((await hold.json()).record.status, 'held');
+    }, databasePath);
+    await withServer(false, async url => {
+      assert.equal((await getRecord(url, 'RET-2421')).record.status, 'held');
+      assert.deepEqual((await getRecord(url)).record, approved);
+    }, databasePath);
+  });
+});
 
 async function setFault(url, on) {
   return fetch(`${url}/__qa/fault`, {
@@ -336,6 +434,31 @@ test('a receipt write failure rolls back the approval and allows the same reques
         assert.equal(retried.status, 200);
         const latest = await getRecord(url);
         assert.equal(latest.record.events.filter(event => event.label === '검수 승인').length, 1);
+      } finally {
+        connection.close();
+      }
+    }, databasePath);
+  });
+});
+
+test('a hold receipt write failure rolls back the status and event together', async () => {
+  await withDatabase(async databasePath => {
+    await withServer(false, async url => {
+      const before = await getRecord(url);
+      const key = randomUUID();
+      const connection = new DatabaseSync(databasePath);
+      try {
+        connection.exec(`CREATE TRIGGER fail_hold_receipt BEFORE INSERT ON approval_receipts
+          BEGIN SELECT RAISE(ABORT, 'injected receipt write failure'); END;`);
+        const failed = await review(url, before.record.id, 'hold', before.etag, '민서', '상태 다시 확인', key);
+        assert.equal(failed.status, 503);
+        assert.deepEqual(await getRecord(url), before);
+        connection.exec('DROP TRIGGER fail_hold_receipt');
+        const retried = await review(url, before.record.id, 'hold', before.etag, '민서', '상태 다시 확인', key);
+        assert.equal(retried.status, 200);
+        const latest = await getRecord(url);
+        assert.equal(latest.record.status, 'held');
+        assert.equal(latest.record.events.length, before.record.events.length + 1);
       } finally {
         connection.close();
       }

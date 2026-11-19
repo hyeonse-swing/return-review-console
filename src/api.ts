@@ -6,7 +6,7 @@ export interface ReturnRecord {
   receivedAt: string;
   condition: string;
   warehouse: string;
-  status: 'pending' | 'approved';
+  status: 'pending' | 'held' | 'approved' | 'rejected';
   version: number;
   customer: string;
   events: Array<{ id: string; at: string; actor: string; label: string; memo?: string }>;
@@ -44,16 +44,17 @@ export async function loadDetail(id: string, signal: AbortSignal): Promise<Retur
   return { record, etag };
 }
 
-type ApprovalResult =
+export type ReviewCommand = 'approve' | 'hold' | 'reapprove' | 'reject';
+export type ReviewResult =
   | { kind: 'approved'; record: ReturnRecord; etag: string }
   | { kind: 'conflict'; record: ReturnRecord; etag: string }
   | { kind: 'failed' }
   | { kind: 'uncertain' };
 
-export async function approve(detail: ReturnDetail, reviewer: string, memo: string, operationKey: string): Promise<ApprovalResult> {
+export async function submitReview(command: ReviewCommand, detail: ReturnDetail, reviewer: string, memo: string, operationKey: string): Promise<ReviewResult> {
   try {
-    if (isWebDemo) return await (await import('./demo')).demoApprove(detail, reviewer, memo, operationKey);
-    const response = await fetch(`${detailUrl(detail.record.id)}/approve`, {
+    if (isWebDemo) return await (await import('./demo')).demoReview(command, detail, reviewer, memo, operationKey);
+    const response = await fetch(`${detailUrl(detail.record.id)}/${command}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'If-Match': detail.etag, 'Idempotency-Key': operationKey },
       body: JSON.stringify({ reviewer, memo }),
@@ -69,10 +70,14 @@ export async function approve(detail: ReturnDetail, reviewer: string, memo: stri
     }
     if (response.status === 503) {
       const { code } = await response.json() as { code?: string };
-      return { kind: code === 'APPROVAL_UNAVAILABLE' ? 'failed' : 'uncertain' };
+      return { kind: code === 'APPROVAL_UNAVAILABLE' || code === 'REVIEW_UNAVAILABLE' ? 'failed' : 'uncertain' };
     }
     return { kind: response.status < 500 ? 'failed' : 'uncertain' };
   } catch {
     return { kind: 'uncertain' };
   }
+}
+
+export function approve(detail: ReturnDetail, reviewer: string, memo: string, operationKey: string): Promise<ReviewResult> {
+  return submitReview('approve', detail, reviewer, memo, operationKey);
 }

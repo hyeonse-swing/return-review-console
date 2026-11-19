@@ -147,9 +147,10 @@ export function createReturnServer({ qa = process.env.RETURN_QA === '1', databas
         }
       }
 
-      const approvalMatch = /^\/api\/returns\/(RET-\d+)\/approve$/.exec(pathname);
-      if (method === 'POST' && approvalMatch) {
-        const record = storage.get(approvalMatch[1]);
+      const transitionMatch = /^\/api\/returns\/(RET-\d+)\/(approve|hold|reapprove|reject)$/.exec(pathname);
+      if (method === 'POST' && transitionMatch) {
+        const [, id, command] = transitionMatch;
+        const record = storage.get(id);
         if (!record) throw new HttpError(404, 'NOT_FOUND', '반품 건을 찾을 수 없습니다.');
 
         const ifMatch = request.headers['if-match'];
@@ -161,7 +162,8 @@ export function createReturnServer({ qa = process.env.RETURN_QA === '1', databas
         const body = await readJson(request);
         if (!body || typeof body !== 'object' || Array.isArray(body) ||
             typeof body.reviewer !== 'string' || !body.reviewer.trim() || body.reviewer.trim().length > 40 ||
-            (body.memo !== undefined && (typeof body.memo !== 'string' || body.memo.trim().length > 500))) {
+            (body.memo !== undefined && (typeof body.memo !== 'string' || body.memo.trim().length > 500)) ||
+            (command === 'hold' || command === 'reject') && (typeof body.memo !== 'string' || !body.memo.trim())) {
           throw new HttpError(400, 'INVALID_REVIEW', '담당자와 500자 이내의 검수 메모를 확인해 주세요.');
         }
 
@@ -173,21 +175,25 @@ export function createReturnServer({ qa = process.env.RETURN_QA === '1', databas
         const key = rawKey?.toLowerCase();
         const reviewer = body.reviewer.trim();
         const memo = body.memo?.trim() ?? '';
-        const result = storage.approve({ id: record.id, ifMatch, reviewer, memo, key, unavailable: approvalFault });
+        const result = storage.transition({ command, id: record.id, ifMatch, reviewer, memo, key, unavailable: approvalFault });
         if (result.kind === 'reusedKey') {
-          throw new HttpError(409, 'IDEMPOTENCY_KEY_REUSED', '같은 요청 ID로 다른 승인을 보낼 수 없습니다.');
+          throw new HttpError(409, 'IDEMPOTENCY_KEY_REUSED', '같은 요청 ID로 다른 결정을 보낼 수 없습니다.');
         }
         if (result.kind === 'notFound') throw new HttpError(404, 'NOT_FOUND', '반품 건을 찾을 수 없습니다.');
         if (result.kind === 'unavailable') {
-          json(response, 503, { code: 'APPROVAL_UNAVAILABLE', message: '승인을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요.' });
+          json(response, 503, { code: command === 'approve' ? 'APPROVAL_UNAVAILABLE' : 'REVIEW_UNAVAILABLE',
+            message: command === 'approve' ? '승인을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요.' : '결정을 처리할 수 없습니다. 잠시 후 다시 시도해 주세요.' });
           return;
         }
         if (result.kind === 'stale') {
           json(response, 412, { code: 'STALE_VERSION', message: '다른 담당자가 먼저 이 반품 건을 처리했습니다.', record: result.record }, { ETag: result.etag });
           return;
         }
-        if (result.kind === 'alreadyApproved') {
-          json(response, 409, { code: 'ALREADY_APPROVED', message: '이미 승인된 반품 건입니다.', record: result.record }, { ETag: result.etag });
+        if (result.kind === 'invalidTransition') {
+          const alreadyApproved = command === 'approve' && result.record.status === 'approved';
+          json(response, 409, { code: alreadyApproved ? 'ALREADY_APPROVED' : 'INVALID_TRANSITION',
+            message: alreadyApproved ? '이미 승인된 반품 건입니다.' : '현재 상태에서 처리할 수 없는 결정입니다.',
+            record: result.record }, { ETag: result.etag });
           return;
         }
         json(response, 200, { record: result.record }, { ETag: result.etag });
