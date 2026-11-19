@@ -39,7 +39,7 @@ From the source project root, run `npm ci` and `npm run build`. The package chec
 
 ```sh
 npx --no-install playwright install chromium firefox webkit
-npm run test:package -- @ihyeon/return-review-console@0.1.3
+npm run test:package -- @ihyeon/return-review-console@0.1.4
 ```
 
 워크플로의 PR 실행과 수동 실행은 모두 이 프로젝트의 로컬 합성 서버를 사용한다. Actions에서 실행한 결과는 워크플로가 저장한 아티팩트로 확인한다.

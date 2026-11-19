@@ -1,6 +1,6 @@
 {
   "name": "@ihyeon/return-review-console",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "A local return review console with durable approval history",
   "homepage": "https://www.npmjs.com/package/@ihyeon/return-review-console",
   "repository": {
@@ -37,7 +37,7 @@
     "qa:pr": "node qa/pr-regression.mjs"
   },
   "devDependencies": {
-    "@hyeonse/design-system": "https://design-system.hyeonse.dev/releases/hyeonse-design-system-0.4.5.tgz",
+    "@hyeonse/design-system": "https://design-system.hyeonse.dev/releases/hyeonse-design-system-0.4.8.tgz",
     "@ihyeon/browser-error-log": "0.2.18",
     "lucide-react": "1.75.0",
     "react": "19.3.0",
