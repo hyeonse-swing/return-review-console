@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { preview } from 'vite';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium, firefox, webkit } from 'playwright';
@@ -9,23 +9,10 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const fixtures = JSON.parse(await readFile(new URL('../shared/fixtures.json', import.meta.url)));
 
 async function openDemoPreview() {
-  const process = spawn('node', ['node_modules/vite/bin/vite.js', 'preview', '--host', '127.0.0.1', '--port', '0', '--outDir', 'dist-demo'], {
-    cwd: root, stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  const origin = await new Promise((resolve, reject) => {
-    let logs = '';
-    const timer = setTimeout(() => reject(new Error('Demo preview did not start.')), 15_000);
-    const output = chunk => {
-      logs += chunk.toString();
-      const match = logs.match(/http:\/\/127\.0\.0\.1:\d+\//);
-      if (match) { clearTimeout(timer); resolve(new URL(match[0]).origin); }
-    };
-    process.stdout.on('data', output);
-    process.stderr.on('data', output);
-    process.once('error', reject);
-    process.once('exit', code => reject(new Error(`Demo preview exited ${code}: ${logs}`)));
-  });
-  return { origin, process };
+  const server = await preview({ root, build: { outDir: 'dist-demo' }, preview: { host: '127.0.0.1', port: 0 } });
+  const address = server.httpServer.address();
+  assert.ok(address && typeof address === 'object', 'Demo preview must listen on TCP');
+  return { origin: `http://127.0.0.1:${address.port}`, close: () => server.close() };
 }
 
 async function choose(page, id) {
@@ -116,7 +103,7 @@ async function run(browserType) {
     await browser.close();
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
-    if (demo) demo.process.kill();
+    if (demo) await demo.close();
   }
 }
 
