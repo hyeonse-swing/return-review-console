@@ -8,7 +8,7 @@ Review and approve synthetic returns in a local browser app. The console include
 
 ### Try the web demo
 
-Open the [Return Desk demo](https://return-desk.hyeonse.dev) in your browser. The demo uses sample returns and stores review history in this browser. To see an approval conflict, open the same pending return in two tabs of the same browser profile and select a different reviewer in each tab. **Reset demo** restores the samples. The npm version below runs a local server and saves its history to SQLite.
+Open the [Return Desk demo](https://return-desk.hyeonse.dev/?lang=en) in your browser. The demo uses sample returns and stores review history in this browser. To see an approval conflict, open the same pending return in two tabs of the same browser profile and select a different reviewer in each tab. **Reset demo** restores the samples. The npm version below runs a local server and saves its history to SQLite.
 
 ### Start from npm
 
@@ -41,7 +41,7 @@ The server binds to the local loopback interface. The package is released under 
 
 ### 설치 없이 체험
 
-[리턴 데스크 데모](https://return-desk.hyeonse.dev)를 브라우저에서 여세요. 샘플 반품으로 실습하며 검수 내역은 이 브라우저에 저장됩니다. 같은 브라우저의 두 탭에서 검수 대기 건을 열고 각각 다른 담당자를 선택하면 승인 충돌을 체험할 수 있습니다. **데모 초기화**로 처음 샘플로 돌아갈 수 있습니다. 아래 npm 버전은 로컬 서버를 실행하고 승인 기록을 SQLite에 저장합니다.
+[리턴 데스크 데모](https://return-desk.hyeonse.dev/?lang=ko)를 브라우저에서 여세요. 샘플 반품으로 실습하며 검수 내역은 이 브라우저에 저장됩니다. 같은 브라우저의 두 탭에서 검수 대기 건을 열고 각각 다른 담당자를 선택하면 승인 충돌을 체험할 수 있습니다. **데모 초기화**로 처음 샘플로 돌아갈 수 있습니다. 아래 npm 버전은 로컬 서버를 실행하고 승인 기록을 SQLite에 저장합니다.
 
 ### npm에서 실행
 

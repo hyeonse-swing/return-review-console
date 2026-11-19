@@ -1,4 +1,16 @@
-# PR 회귀 검사 예제
+# PR 회귀 검사 예제 · PR regression example
+
+[English](#english) · [한국어](#한국어)
+
+## English
+
+This local regression scenario checks the approval of the synthetic return `RET-2421`. A successful request must show **Approved**. A simulated HTTP 503 must show an error and leave the return pending.
+
+`npm run qa:pr` starts a local server and reproduces the 503 in Chromium. [Browser Error Log](https://github.com/hyeonse-swing/browser-error-log) captures the failing request. [Error to Test](https://github.com/hyeonse-swing/error-to-test) uses that event ID to prepare a reviewed regression case. [Flow QA](https://github.com/hyeonse-swing/flow-qa) runs the same case twice, with the fault present and after recovery. The failure gate must return exit code 2, and the recovery gate must return 0.
+
+See `qa/.runs/pr-*/summary.json` for the captured event ID, suite hash, and both run IDs. The [Hyeonse Design System](https://design-system.hyeonse.dev) supplies the console's shared UI components.
+
+## 한국어
 
 [Browser Error Log](https://github.com/hyeonse-swing/browser-error-log)로 오류를 수집하고, [Error to Test](https://github.com/hyeonse-swing/error-to-test)에서 회귀 케이스를 검토한 뒤, [Flow QA](https://github.com/hyeonse-swing/flow-qa)에서 실패와 복구를 확인한다. 콘솔 화면은 [Hyeonse Design System](https://design-system.hyeonse.dev)의 구성 요소를 사용한다.
 
