@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
@@ -201,6 +201,9 @@ async function main() {
   const recoveryReport = await readJson(reportPath(recovered));
   assert(recoveryReport.status === 'passed' && recoveryReport.cases.length === 1 && recoveryReport.cases[0].status === 'passed', 'Recovery run did not pass.');
   assert(failureReport.suiteHash === recoveryReport.suiteHash, 'Failure and recovery used different suites.');
+  const caseId = failureReport.cases[0].id;
+  assert(typeof caseId === 'string' && caseId.length > 0 && caseId === recoveryReport.cases[0].id,
+    'Failure and recovery did not use the same case ID.');
   runCli('error-to-test', ['link-run', reviewed, '--report', reportPath(recovered)]);
   const passedGate = runCli('error-to-test', ['results', reviewed, '--require-pass', '--format', 'json']);
   const passedSummary = JSON.parse(passedGate.stdout);
@@ -208,12 +211,15 @@ async function main() {
   await save('recovery-gate.json', passedSummary);
   const trace = runCli('error-to-test', ['trace', reviewed, '--event-id', event.eventId, '--format', 'json']);
   const traced = JSON.parse(trace.stdout);
-  assert(traced.found && traced.matches?.some((match) => match.cases?.some((item) => item.status === 'passed')), 'Event ID was not linked to the recovered case.');
+  assert(traced.found && traced.eventId === event.eventId && traced.matches?.some((match) =>
+    match.groupId === first.groups[0].id && match.cases?.some((item) => item.caseId === caseId && item.status === 'passed')),
+  'The captured event did not trace to the same reviewed case that passed after recovery.');
   await save('event-trace.json', traced);
 
   await save('summary.json', {
     origin,
     eventId: event.eventId,
+    caseId,
     capturedEventSha256: createHash('sha256').update(JSON.stringify(event)).digest('hex'),
     suiteHash: failureReport.suiteHash,
     failureRunId: failureReport.runId,
@@ -222,6 +228,27 @@ async function main() {
     passedGateExitCode: passedGate.status,
     result: 'passed',
   });
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    const rows = [
+      ['Browser Error Log · captured HTTP 503', event.eventId],
+      ['Error to Test · reviewed case', caseId],
+      ['Flow QA · failed while faulted', failureReport.runId],
+      ['Flow QA · passed after recovery', recoveryReport.runId],
+    ];
+    assert(rows.every(([, id]) => typeof id === 'string' && /^[A-Za-z\d_-]+$/.test(id)), 'Unexpected regression evidence ID format.');
+    await appendFile(process.env.GITHUB_STEP_SUMMARY, [
+      '## Return Desk · Browser error to regression',
+      '',
+      'A synthetic return approval produced an HTTP 503. The same reviewed case failed during the fault and passed after recovery.',
+      '',
+      '| Step | ID |',
+      '| --- | --- |',
+      ...rows.map(([label, id]) => `| ${label} | \`${id}\` |`),
+      '',
+      '[English walkthrough](https://github.com/hyeonse-swing/return-review-console/blob/main/qa/README.md#english) · [한국어 예제](https://github.com/hyeonse-swing/return-review-console/blob/main/qa/README.md#한국어)',
+      '',
+    ].join('\n'));
+  }
   console.log(`PR regression passed. Evidence: ${outputDirectory}`);
 }
 

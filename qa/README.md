@@ -8,7 +8,7 @@ This local regression scenario checks the approval of the synthetic return `RET-
 
 `npm run qa:pr` starts a local server and reproduces the 503 in Chromium. [Browser Error Log](https://github.com/hyeonse-swing/browser-error-log) captures the failing request. [Error to Test](https://github.com/hyeonse-swing/error-to-test) uses that event ID to prepare a reviewed regression case. [Flow QA](https://github.com/hyeonse-swing/flow-qa) runs the same case twice, with the fault present and after recovery. The failure gate must return exit code 2, and the recovery gate must return 0.
 
-See `qa/.runs/pr-*/summary.json` for the captured event ID, suite hash, and both run IDs. The [Hyeonse Design System](https://design-system.hyeonse.dev) supplies the console's shared UI components.
+Open a successful [GitHub Actions run](https://github.com/hyeonse-swing/return-review-console/actions/workflows/ci.yml) to follow the captured error ID, reviewed case ID, and both Flow QA runs in the summary. Locally, `qa/.runs/pr-*/summary.json` records the same IDs and suite hash. `event-trace.json` shows how the original error links to the case that passed after recovery. The [Hyeonse Design System](https://design-system.hyeonse.dev) supplies the console's shared UI components.
 
 ## 한국어
 
@@ -27,7 +27,7 @@ npm run test:browser
 npm run qa:pr
 ```
 
-결과는 `qa/.runs/pr-*`에 저장된다. `summary.json`은 원본 오류 ID, 동일 suite 해시, 실패·복구 run ID와 두 게이트의 종료 코드를 기록한다. `collector-batches.json`은 로컬 수집기가 받은 SDK 배치, `captured.json`은 503에 해당하는 SDK 이벤트 한 건, `reviewed/`는 Error-to-Test 분석과 연결된 결과, `workspace/.flowqa/runs/`는 Flow QA의 브라우저 보고서다. 별도 동시 승인 브라우저 검사는 `output/browser/`에 기록한다. 이 파일들은 `.gitignore`로 제외하며 CI에서는 실패할 때도 아티팩트로 보관한다.
+성공한 [GitHub Actions 실행](https://github.com/hyeonse-swing/return-review-console/actions/workflows/ci.yml)의 요약에서 수집한 오류 ID, 검토한 케이스 ID, Flow QA의 실패·복구 실행 ID를 순서대로 확인할 수 있다. 로컬의 `qa/.runs/pr-*/summary.json`에는 같은 ID와 suite 해시, 두 게이트의 종료 코드가 남는다. `event-trace.json`은 수집한 오류가 복구 후 통과한 케이스와 이어지는지 보여준다. `collector-batches.json`은 로컬 수집기가 받은 SDK 배치, `captured.json`은 503에 해당하는 SDK 이벤트 한 건, `reviewed/`는 Error-to-Test 분석과 연결된 결과, `workspace/.flowqa/runs/`는 Flow QA의 브라우저 보고서다. 별도 동시 승인 브라우저 검사는 `output/browser/`에 기록한다. 이 파일들은 `.gitignore`로 제외하며 CI에서는 실패할 때도 아티팩트로 보관한다.
 
 별도 저장소에 적용할 때는 `.github/workflows/ci.yml`의 검증 단계와 `qa/`를 참고한다. `package.json`의 `qa:pr` 실행 명령과 공개 QA 패키지 버전을 옮기고 `test:browser`는 해당 앱의 브라우저 검사 명령으로 바꾼다. 앱 시작과 상태 확인 경로, 합성 테스트 데이터, 화면에서 사용하는 이름, 검토된 요구사항은 각 서비스에 맞게 수정한다. 아티팩트에는 합성 QA 결과만 포함한다. 운영 서비스의 수집률과 안정성은 별도 측정이 필요하다.
 
