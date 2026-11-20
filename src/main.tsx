@@ -746,8 +746,8 @@ function App() {
                   </section>
                 </div>
                 {record.status === 'held' && <p className="hold-reason"><strong>{t.holdReason}</strong>{[...record.events].reverse().find(event => event.label === '검수 보류')?.memo}</p>}
-                <Assignment key={`${record.id}:${reviewer}`} current={detail} reviewer={reviewer} language={language} onUpdate={update} />
-                <Approval key={`${record.id}:${reviewer}`} current={detail} reviewer={reviewer} language={language} onUpdate={update} />
+                <Assignment key={`${record.id}:${reviewer}:assignment`} current={detail} reviewer={reviewer} language={language} onUpdate={update} />
+                <Approval key={`${record.id}:${reviewer}:approval`} current={detail} reviewer={reviewer} language={language} onUpdate={update} />
                 <div className="decision-actions" aria-label={t.reviewDecisions}>
                   <ReviewDecision key={`${record.id}:${reviewer}:hold`} command="hold" current={detail} reviewer={reviewer} language={language} onUpdate={update} />
                   <ReviewDecision key={`${record.id}:${reviewer}:reapprove`} command="reapprove" current={detail} reviewer={reviewer} language={language} onUpdate={update} />
