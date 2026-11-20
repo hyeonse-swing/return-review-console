@@ -394,8 +394,9 @@ async function main() {
     assert.match(license, /Permission is hereby granted/);
     const readme = await readFile(join(packageDir, 'README.md'), 'utf8');
     assert.ok(readme.includes(projectUrl), 'README must link to this project');
-    assert.match(readme, /^## English$/m, 'English guide must be bundled');
-    assert.match(readme, /^## 한국어$/m, 'Korean guide must be bundled');
+    assert.match(readme, /^# Return Review Console$/m, 'English guide must be bundled');
+    assert.match(readme, /^\[한국어\]\(https:\/\/github\.com\/hyeonse-swing\/return-review-console\/blob\/main\/README\.ko\.md\)/m, 'Korean guide must link to GitHub');
+    assert.doesNotMatch(readme, /^## 한국어$/m, 'npm README must contain only the English guide');
     assert.doesNotMatch(readme, /https?:\/\/design-system\.hyeonse\.dev/i, 'README must not link to the design system as this project');
     assert.doesNotMatch(readme, /playwright install|npm run test:package/i, 'public README must omit developer-only package checks');
     assert.ok(metadata.bin?.[binName], 'package must register return-review-console binary');
