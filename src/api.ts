@@ -7,6 +7,7 @@ export interface ReturnRecord {
   condition: string;
   warehouse: string;
   status: 'pending' | 'held' | 'approved' | 'rejected';
+  assignee?: string;
   version: number;
   customer: string;
   events: Array<{ id: string; at: string; actor: string; label: string; memo?: string }>;
@@ -45,13 +46,14 @@ export async function loadDetail(id: string, signal: AbortSignal): Promise<Retur
 }
 
 export type ReviewCommand = 'approve' | 'hold' | 'reapprove' | 'reject';
+export type AssignmentCommand = 'assign' | 'unassign';
 export type ReviewResult =
   | { kind: 'approved'; record: ReturnRecord; etag: string }
   | { kind: 'conflict'; record: ReturnRecord; etag: string }
   | { kind: 'failed' }
   | { kind: 'uncertain' };
 
-export async function submitReview(command: ReviewCommand, detail: ReturnDetail, reviewer: string, memo: string, operationKey: string): Promise<ReviewResult> {
+export async function submitReview(command: ReviewCommand | AssignmentCommand, detail: ReturnDetail, reviewer: string, memo: string, operationKey: string): Promise<ReviewResult> {
   try {
     if (isWebDemo) return await (await import('./demo')).demoReview(command, detail, reviewer, memo, operationKey);
     const response = await fetch(`${detailUrl(detail.record.id)}/${command}`, {

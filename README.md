@@ -41,4 +41,12 @@ The HTTP API uses `POST /api/returns/:id/hold`, `/reapprove`, and `/reject` with
 
 The **Returns awaiting reinspection** table shows held records. Use the received-date heading to sort by date, with return ID breaking ties. Select one record with its checkbox, then move between pages to keep that selection. **Open details** opens a record without changing the checkbox selection. When a selected record is completed, the selection clears on refresh. Each page shows two records so the paging behavior is visible with three held samples.
 
+### Assign a held return
+
+Open a held return and choose **Assign to me**. The current reviewer appears in its details and the held list. Use **Assigned to me** above that list to see your held returns. The assigned reviewer can choose **Unassign** so another reviewer can take it. Assignment tracks work in progress. Review decisions follow the existing rules, including when another reviewer makes the final decision. A final decision clears the assignment and removes the return from the held list.
+
+To try a conflict, open the same held return in two tabs and choose a different reviewer in each. Both tabs can press **Assign to me**. One request succeeds; the other receives the current assignment and can see the winning reviewer. Reload either tab to check persistence. The browser demo stores assignments in IndexedDB within the same browser profile, while the npm app stores them in SQLite across restarts.
+
+The local API accepts `POST /api/returns/:id/assign` and `/unassign` with a JSON `reviewer`, the current `If-Match` ETag, and an `Idempotency-Key` UUID. A stale version returns `412` with the current record. A retry with the same key and request fields returns the saved result with one history event. Older records without an `assignee` are unassigned.
+
 The server binds to the local loopback interface. The package is released under the MIT license and includes notices for bundled dependencies.

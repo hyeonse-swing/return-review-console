@@ -49,8 +49,12 @@ async function run(browserType) {
     await hold.getByRole('button', { name: '보류 확정' }).click();
     await local.getByTestId('record-status').getByText('재검수 대기').waitFor();
     assert.match(await local.getByTestId('row-RET-2418').innerText(), /상태 재확인 필요/);
+    await local.getByRole('button', { name: '내가 맡기' }).click();
+    await local.locator('.assignment').getByText('민서').waitFor();
+    assert.match(await local.locator('.held-review').innerText(), /민서/);
     await local.reload();
     await local.getByTestId('record-status').getByText('재검수 대기').waitFor();
+    await local.locator('.assignment').getByRole('button', { name: '담당 해제' }).waitFor();
     await local.getByRole('combobox', { name: '검수 담당자' }).selectOption('지훈');
     const reject = await act(local, '반려하기', '재검수 반려', '실물 상태 불량');
     await reject.getByRole('button', { name: '반려 확정' }).click();
@@ -125,6 +129,38 @@ async function run(browserType) {
     await second.getByTestId('record-status').getByText('승인 완료').waitFor();
     assert.equal(await second.getByTestId('record-status').getByText('승인 완료').count(), 1);
     assert.match(await second.locator('.history').innerText(), /검수 보류[\s\S]*재검수 승인|재검수 승인[\s\S]*검수 보류/);
+
+    await first.goto(`${demo.origin}/?id=RET-2418`);
+    const assignmentHold = await act(first, '보류하기', '반품 보류', '담당자 경합 확인');
+    await assignmentHold.getByRole('button', { name: '보류 확정' }).click();
+    await first.getByTestId('record-status').getByText('재검수 대기').waitFor();
+    await second.goto(`${demo.origin}/?id=RET-2418`);
+    await second.getByRole('combobox', { name: '검수 담당자' }).selectOption('지훈');
+    await second.getByRole('button', { name: '내가 맡기' }).waitFor();
+    await first.getByRole('button', { name: '내가 맡기' }).click();
+    await first.locator('.assignment').getByRole('button', { name: '담당 해제' }).waitFor();
+    await second.getByRole('button', { name: '내가 맡기' }).click();
+    await second.locator('.assignment').getByRole('alert').getByText('담당 상태가 바뀌었어요. 현재 담당자를 확인해 주세요.').waitFor();
+    assert.match(await second.locator('.assignment').innerText(), /민서/);
+    await first.reload();
+    await first.locator('.assignment').getByRole('button', { name: '담당 해제' }).waitFor();
+    await first.getByRole('button', { name: '내 담당' }).click();
+    assert.match(await first.locator('.held-review').innerText(), /RET-2418/);
+    await first.getByRole('button', { name: '담당 해제' }).click();
+    await first.locator('.assignment').getByRole('button', { name: '내가 맡기' }).waitFor();
+    await second.reload();
+    await second.getByRole('button', { name: '내가 맡기' }).click();
+    await second.locator('.assignment').getByRole('button', { name: '담당 해제' }).waitFor();
+    await first.reload();
+    assert.match(await first.locator('.assignment').innerText(), /지훈/);
+    await first.getByRole('button', { name: '내 담당' }).click();
+    assert.doesNotMatch(await first.locator('.held-review').innerText(), /RET-2418/);
+    await first.getByRole('button', { name: '내 담당' }).click();
+    const finalDecision = await act(first, '재검수 승인', '재검수 승인');
+    await finalDecision.getByRole('button', { name: '승인 확정' }).click();
+    await first.getByTestId('record-status').getByText('승인 완료').waitFor();
+    assert.equal(await first.locator('.assignment').count(), 0);
+    assert.doesNotMatch(await first.locator('.held-review').innerText(), /RET-2418/);
 
     console.log(`${browserType.name()}: reinspection server and upgraded browser demo passed.`);
   } finally {

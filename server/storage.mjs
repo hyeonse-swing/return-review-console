@@ -108,18 +108,25 @@ export function openReturnStorage({ databasePath, fixtures }) {
               database.exec('COMMIT');
               return { kind: 'stale', record, etag: versionTag(record) };
             }
-            if (record.status === 'approved' || record.status === 'rejected' ||
-                (record.status === 'held' && command === 'approve') ||
-                (record.status === 'pending' && (command === 'reapprove' || command === 'reject')) ||
-                (record.status === 'held' && command === 'hold')) {
+            const assignment = command === 'assign' || command === 'unassign';
+            const invalidAssignment = assignment && (record.status !== 'held' ||
+              (command === 'assign' ? Boolean(record.assignee) : record.assignee !== reviewer));
+            if (invalidAssignment || (!assignment && (record.status === 'approved' || record.status === 'rejected' ||
+                (record.status === 'held' && (command === 'approve' || command === 'hold')) ||
+                (record.status === 'pending' && (command === 'reapprove' || command === 'reject'))))) {
               database.exec('COMMIT');
               return { kind: 'invalidTransition', record, etag: versionTag(record) };
             }
 
-            const finalStatus = command === 'hold' ? 'held' : command === 'reject' ? 'rejected' : 'approved';
-            const label = command === 'hold' ? '검수 보류' : command === 'reject' ? '재검수 반려'
+            const label = command === 'assign' ? '재검수 담당' : command === 'unassign' ? '재검수 담당 해제'
+              : command === 'hold' ? '검수 보류' : command === 'reject' ? '재검수 반려'
               : command === 'reapprove' ? '재검수 승인' : '검수 승인';
-            record.status = finalStatus;
+            if (command === 'assign') record.assignee = reviewer;
+            else if (command === 'unassign') delete record.assignee;
+            else {
+              record.status = command === 'hold' ? 'held' : command === 'reject' ? 'rejected' : 'approved';
+              delete record.assignee;
+            }
             record.version += 1;
             record.events.push({
               id: randomUUID(), at: new Date().toISOString(), actor: reviewer,

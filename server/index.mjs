@@ -147,7 +147,7 @@ export function createReturnServer({ qa = process.env.RETURN_QA === '1', databas
         }
       }
 
-      const transitionMatch = /^\/api\/returns\/(RET-\d+)\/(approve|hold|reapprove|reject)$/.exec(pathname);
+      const transitionMatch = /^\/api\/returns\/(RET-\d+)\/(approve|hold|reapprove|reject|assign|unassign)$/.exec(pathname);
       if (method === 'POST' && transitionMatch) {
         const [, id, command] = transitionMatch;
         const record = storage.get(id);
@@ -168,6 +168,9 @@ export function createReturnServer({ qa = process.env.RETURN_QA === '1', databas
         }
 
         const rawKey = request.headers['idempotency-key'];
+        if ((command === 'assign' || command === 'unassign') && rawKey === undefined) {
+          throw new HttpError(428, 'IDEMPOTENCY_KEY_REQUIRED', '요청 ID가 필요합니다.');
+        }
         if (rawKey !== undefined && (typeof rawKey !== 'string' ||
             !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawKey))) {
           throw new HttpError(400, 'INVALID_IDEMPOTENCY_KEY', '올바른 요청 ID가 필요합니다.');

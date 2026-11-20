@@ -7,7 +7,7 @@ import { ArrowDownLeft, ArrowRight, Check, ChevronRight, CircleAlert, Clock3, Li
 import { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { approve, isWebDemo, loadDetail, loadQueue, resetWebDemo, submitReview } from './api';
-import type { ReturnDetail, ReturnRecord, ReviewCommand } from './api';
+import type { AssignmentCommand, ReturnDetail, ReturnRecord, ReviewCommand } from './api';
 import { copy, displayFixture, displayMemo, displayName, initialLanguage } from './i18n';
 import type { Language } from './i18n';
 import '@hyeonse/design-system/tokens.css';
@@ -62,11 +62,11 @@ function reviewDraft(id: string, reviewer: Reviewer, value?: string, command: Re
   return value ?? '';
 }
 
-function pendingApprovalKey(id: string, reviewer: Reviewer, command: ReviewCommand = 'approve') {
+function pendingApprovalKey(id: string, reviewer: Reviewer, command: ReviewCommand | AssignmentCommand = 'approve') {
   return `return-review:pending-${command === 'approve' ? 'approval' : command}:${id}:${reviewer}`;
 }
 
-function readPendingApproval(id: string, reviewer: Reviewer, command: ReviewCommand = 'approve'): PendingApproval | null {
+function readPendingApproval(id: string, reviewer: Reviewer, command: ReviewCommand | AssignmentCommand = 'approve'): PendingApproval | null {
   try {
     const value = sessionStorage.getItem(pendingApprovalKey(id, reviewer, command));
     if (!value) return null;
@@ -80,7 +80,7 @@ function readPendingApproval(id: string, reviewer: Reviewer, command: ReviewComm
   return null;
 }
 
-function writePendingApproval(id: string, reviewer: Reviewer, operation: PendingApproval | null, command: ReviewCommand = 'approve') {
+function writePendingApproval(id: string, reviewer: Reviewer, operation: PendingApproval | null, command: ReviewCommand | AssignmentCommand = 'approve') {
   try {
     const key = pendingApprovalKey(id, reviewer, command);
     if (operation) sessionStorage.setItem(key, JSON.stringify(operation));
@@ -332,6 +332,64 @@ function ReviewDecision({ command, current, reviewer, language, onUpdate }: {
   </div>;
 }
 
+type PendingAssignment = PendingApproval & { command: AssignmentCommand };
+
+function Assignment({ current, reviewer, language, onUpdate }: {
+  current: ReturnDetail;
+  reviewer: Reviewer;
+  language: Language;
+  onUpdate: (updated: ReturnDetail) => void;
+}) {
+  const { record } = current;
+  const t = copy[language];
+  const [pending, setPending] = useState<PendingAssignment | null>(() => {
+    const assign = readPendingApproval(record.id, reviewer, 'assign');
+    const unassign = readPendingApproval(record.id, reviewer, 'unassign');
+    return assign ? { ...assign, command: 'assign' } : unassign ? { ...unassign, command: 'unassign' } : null;
+  });
+  const [message, setMessage] = useState<'conflict' | 'failed' | null>(null);
+  const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
+  const action = pending?.command ?? (record.status !== 'held' ? null
+    : !record.assignee ? 'assign' : record.assignee === reviewer ? 'unassign' : null);
+  const notice = pending && !busy ? t.assignmentUncertain
+    : message === 'conflict' ? t.assignmentConflict : message === 'failed' ? t.assignmentFailed : null;
+
+  async function changeAssignment() {
+    if (submitting.current || !action) return;
+    submitting.current = true;
+    setBusy(true);
+    setMessage(null);
+    const operation: PendingAssignment = pending ?? {
+      command: action, key: crypto.randomUUID(), etag: current.etag, memo: '',
+    };
+    writePendingApproval(record.id, reviewer, operation, operation.command);
+    setPending(operation);
+    const result = await submitReview(operation.command, { ...current, etag: operation.etag },
+      reviewer, '', operation.key);
+    submitting.current = false;
+    setBusy(false);
+    if (result.kind === 'uncertain') return;
+    writePendingApproval(record.id, reviewer, null, operation.command);
+    setPending(null);
+    if (result.kind === 'failed') {
+      setMessage('failed');
+      return;
+    }
+    onUpdate({ record: result.record, etag: result.etag });
+    if (result.kind === 'conflict') setMessage('conflict');
+  }
+
+  if (record.status !== 'held' && !pending && !message) return null;
+  return <section className="assignment" aria-label={t.assignee}>
+    {record.status === 'held' && <p><strong>{t.assignee}</strong> {record.assignee ? displayName(record.assignee, language) : t.unassigned}</p>}
+    {action && <Button variant="secondary" size="sm" disabled={busy} onClick={() => void changeAssignment()}>
+      {pending ? t.retrySameRequest : action === 'assign' ? t.assignReturn : t.unassignReturn}
+    </Button>}
+    {notice && <p className="assignment-notice" role="alert">{notice}</p>}
+  </section>;
+}
+
 function DemoNotice({ language, onReset }: { language: Language; onReset: () => void }) {
   const t = copy[language];
   const [open, setOpen] = useState(false);
@@ -401,6 +459,7 @@ function App() {
   });
   const [selectedHeldRowId, setSelectedHeldRowId] = useState<string | null>(null);
   const [heldPage, setHeldPage] = useState(1);
+  const [mineOnly, setMineOnly] = useState(false);
   const [search, setSearch] = useState('');
   const [mobileDetail, setMobileDetail] = useState(() => new URLSearchParams(location.search).has('id'));
   const detailHeading = useRef<HTMLHeadingElement>(null);
@@ -416,7 +475,7 @@ function App() {
   const visible = queue.filter(record => (filter === 'all' || record.status === filter)
     && (!query || [record.id, record.item, displayFixture(record.item, language), record.sku]
       .some(value => value.toLocaleLowerCase(language).includes(query))));
-  const held = queue.filter(item => item.status === 'held');
+  const held = queue.filter(item => item.status === 'held' && (!mineOnly || item.assignee === reviewer));
   const sortedHeld = [...held].sort((left, right) => {
     if (!heldSort || heldSort.columnId !== 'receivedAt') return 0;
     const direction = heldSort.direction === 'asc' ? 1 : -1;
@@ -431,10 +490,11 @@ function App() {
 
   useEffect(() => {
     if (heldPage > heldPageCount) setHeldPage(heldPageCount);
-    if (selectedHeldRowId && !queue.some(item => item.status === 'held' && item.id === selectedHeldRowId)) {
+    if (selectedHeldRowId && !queue.some(item => item.status === 'held' &&
+      (!mineOnly || item.assignee === reviewer) && item.id === selectedHeldRowId)) {
       setSelectedHeldRowId(null);
     }
-  }, [heldPage, heldPageCount, selectedHeldRowId, queue]);
+  }, [heldPage, heldPageCount, selectedHeldRowId, queue, mineOnly, reviewer]);
 
   useEffect(() => {
     if (!demoChannel) return;
@@ -582,6 +642,13 @@ function App() {
           <div><dt><CircleAlert size={17} aria-hidden="true" />{t.rejected}</dt><dd>{counts.rejected}<span>{t.countSuffix(counts.rejected)}</span></dd></div>
         </dl>
         <section className="held-review" data-mobile-detail={mobileDetail}>
+          <div className="held-controls">
+            <button type="button" aria-pressed={mineOnly} onClick={() => {
+              setMineOnly(value => !value);
+              setHeldPage(1);
+              setSelectedHeldRowId(null);
+            }}>{t.mineOnly}</button>
+          </div>
           <DataTable<ReturnRecord>
             caption={t.heldQueue}
             columns={[
@@ -591,6 +658,8 @@ function App() {
               { id: 'item', header: t.product, cell: item => displayFixture(item.item, language) },
               { id: 'reason', header: t.holdReason, cell: item =>
                 <span className="held-reason-cell">{[...item.events].reverse().find(event => event.label === '검수 보류')?.memo}</span> },
+              { id: 'assignee', header: t.assignee, cell: item =>
+                item.assignee ? displayName(item.assignee, language) : t.unassigned },
               { id: 'status', header: t.reviewStatus, cell: item => <Status record={item} language={language} /> },
               { id: 'details', header: t.detail, cell: item =>
                 <button type="button" className="open-held-detail" onClick={() => select(item.id)}>{t.openDetail}</button> },
@@ -609,7 +678,7 @@ function App() {
             pageSize={heldPageSize}
             locale={language}
             state={queueProblem ? 'error' : queueLoading ? 'loading' : 'ready'}
-            emptyMessage={t.noHeldReturns}
+            emptyMessage={mineOnly ? t.noMine : t.noHeldReturns}
             errorMessage={t.queueError}
           />
         </section>
@@ -634,7 +703,10 @@ function App() {
                   aria-current={item.id === selected ? 'true' : undefined} onClick={() => select(item.id)}>
                   <span className="row-copy"><span className="row-id">{item.id}</span><strong>{displayFixture(item.item, language)}</strong>
                     <span className="row-date">{language === 'ko' ? `${formatDate(item.receivedAt, language, true)} ${t.received}` : `${t.received} ${formatDate(item.receivedAt, language, true)}`}</span>
-                    {item.status === 'held' && <span className="row-hold-reason">{t.holdReason}: {item.events.at(-1)?.memo}</span>}</span>
+                    {item.status === 'held' && <>
+                      <span className="row-hold-reason">{t.holdReason}: {[...item.events].reverse().find(event => event.label === '검수 보류')?.memo}</span>
+                      <span className="row-assignee">{t.assignee}: {item.assignee ? displayName(item.assignee, language) : t.unassigned}</span>
+                    </>}</span>
                   <span className="row-end"><Status record={item} language={language} /><ChevronRight size={17} aria-hidden="true" /></span>
                 </button>
               </li>)}</ul>}
@@ -674,6 +746,7 @@ function App() {
                   </section>
                 </div>
                 {record.status === 'held' && <p className="hold-reason"><strong>{t.holdReason}</strong>{[...record.events].reverse().find(event => event.label === '검수 보류')?.memo}</p>}
+                <Assignment key={`${record.id}:${reviewer}`} current={detail} reviewer={reviewer} language={language} onUpdate={update} />
                 <Approval key={`${record.id}:${reviewer}`} current={detail} reviewer={reviewer} language={language} onUpdate={update} />
                 <div className="decision-actions" aria-label={t.reviewDecisions}>
                   <ReviewDecision key={`${record.id}:${reviewer}:hold`} command="hold" current={detail} reviewer={reviewer} language={language} onUpdate={update} />

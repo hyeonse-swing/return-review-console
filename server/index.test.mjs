@@ -466,6 +466,52 @@ test('a hold receipt write failure rolls back the status and event together', as
   });
 });
 
+test('assignment API exposes the current owner on conflict and replays one history event', async () => {
+  await withServer(false, async url => {
+    const before = await getRecord(url);
+    const hold = await review(url, before.record.id, 'hold', before.etag, '민서', '실물 확인');
+    assert.equal(hold.status, 200);
+    const heldEtag = hold.headers.get('etag');
+    const missingKey = await fetch(`${url}/api/returns/${before.record.id}/assign`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'If-Match': heldEtag },
+      body: JSON.stringify({ reviewer: '민서' }),
+    });
+    assert.equal(missingKey.status, 428);
+
+    const firstKey = randomUUID();
+    const secondKey = randomUUID();
+    const results = await Promise.all([
+      review(url, before.record.id, 'assign', heldEtag, '민서', '', firstKey),
+      review(url, before.record.id, 'assign', heldEtag, '지훈', '', secondKey),
+    ]);
+    assert.deepEqual(results.map(result => result.status).sort(), [200, 412]);
+    const winner = await results.find(result => result.status === 200).json();
+    const loser = await results.find(result => result.status === 412).json();
+    assert.equal(loser.record.assignee, winner.record.assignee);
+    assert.equal(loser.record.version, winner.record.version);
+    const owner = winner.record.assignee;
+    const winningKey = owner === '민서' ? firstKey : secondKey;
+    const replay = await review(url, before.record.id, 'assign', heldEtag, owner, '', winningKey);
+    assert.equal(replay.status, 200);
+    assert.deepEqual(await replay.json(), winner);
+
+    const latest = await getRecord(url);
+    assert.equal(latest.record.events.filter(event => event.label === '재검수 담당').length, 1);
+    const other = owner === '민서' ? '지훈' : '민서';
+    assert.equal((await review(url, before.record.id, 'unassign', latest.etag, other, '')).status, 409);
+    const unassigned = await review(url, before.record.id, 'unassign', latest.etag, owner, '');
+    assert.equal(unassigned.status, 200);
+    assert.equal((await unassigned.json()).record.assignee, undefined);
+    const reassigned = await review(url, before.record.id, 'assign', unassigned.headers.get('etag'), other, '');
+    assert.equal(reassigned.status, 200);
+    const final = await review(url, before.record.id, 'reapprove', reassigned.headers.get('etag'), owner, '검수 완료');
+    assert.equal(final.status, 200);
+    assert.equal((await final.json()).record.assignee, undefined);
+    assert.equal((await getRecord(url)).record.status, 'approved');
+  });
+});
+
 test('unexpected Host and cross-origin mutations are rejected before state changes', async () => {
   await withServer(true, async url => {
     const initial = await getRecord(url);

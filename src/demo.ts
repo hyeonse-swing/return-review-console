@@ -1,5 +1,5 @@
 import fixtures from '../shared/fixtures.json';
-import type { ReturnDetail, ReturnRecord, ReviewCommand } from './api';
+import type { AssignmentCommand, ReturnDetail, ReturnRecord, ReviewCommand } from './api';
 
 type ApprovalResult =
   | { kind: 'approved'; record: ReturnRecord; etag: string }
@@ -12,7 +12,7 @@ interface Receipt {
   ifMatch: string;
   reviewer: string;
   memo: string;
-  command?: ReviewCommand;
+  command?: ReviewCommand | AssignmentCommand;
   record: ReturnRecord;
   etag: string;
 }
@@ -114,7 +114,7 @@ export async function demoDetail(id: string, signal: AbortSignal): Promise<Retur
   return detail;
 }
 
-export async function demoReview(command: ReviewCommand, detail: ReturnDetail, reviewer: string, memo: string, operationKey: string): Promise<ApprovalResult> {
+export async function demoReview(command: ReviewCommand | AssignmentCommand, detail: ReturnDetail, reviewer: string, memo: string, operationKey: string): Promise<ApprovalResult> {
   const name = reviewer.trim();
   const note = memo.trim();
   if (!name || name.length > 40 || note.length > 500 ||
@@ -138,20 +138,25 @@ export async function demoReview(command: ReviewCommand, detail: ReturnDetail, r
 
     const currentEtag = etag(generation, current);
     const allowed = command === 'approve' || command === 'hold'
-      ? current.status === 'pending' : current.status === 'held';
+      ? current.status === 'pending'
+      : current.status === 'held' && (command === 'assign' ? !current.assignee
+        : command === 'unassign' ? current.assignee === name : true);
     if (detail.etag !== currentEtag || !allowed) {
       return { kind: 'conflict', record: current, etag: currentEtag };
     }
 
     const updated: ReturnRecord = {
       ...current,
-      status: command === 'hold' ? 'held' : command === 'reject' ? 'rejected' : 'approved',
+      status: command === 'assign' || command === 'unassign' ? current.status
+        : command === 'hold' ? 'held' : command === 'reject' ? 'rejected' : 'approved',
+      assignee: command === 'assign' ? name : undefined,
       version: current.version + 1,
       events: [...current.events, {
         id: crypto.randomUUID(),
         at: new Date().toISOString(),
         actor: name,
-        label: command === 'hold' ? '검수 보류' : command === 'reject' ? '재검수 반려'
+        label: command === 'assign' ? '재검수 담당' : command === 'unassign' ? '재검수 담당 해제'
+          : command === 'hold' ? '검수 보류' : command === 'reject' ? '재검수 반려'
           : command === 'reapprove' ? '재검수 승인' : '검수 승인',
         ...(note ? { memo: note } : {}),
       }],

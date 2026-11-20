@@ -69,6 +69,9 @@ p, h1, h2, h3, dl, dd, ul, ol { margin: 0; }
 html[lang='en'] .summary dd span { margin-left: 0; }
 
 .held-review { min-width: 0; margin-bottom: 24px; padding: 14px 18px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-raised); }
+.held-controls { display: flex; justify-content: flex-end; }
+.held-controls button { min-height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface-raised); color: var(--ink); font-size: 12px; font-weight: 650; }
+.held-controls button[aria-pressed='true'] { border-color: var(--green); background: var(--green-wash); color: var(--green); }
 .held-reason-cell { display: block; max-width: 24ch; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .open-held-detail { min-height: 40px; padding: 0 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface-raised); color: var(--green); white-space: nowrap; }
 .open-held-detail:hover { background: var(--green-wash); }
@@ -98,6 +101,7 @@ html[lang='en'] .summary dd span { margin-left: 0; }
 .row-copy strong { font-size: 14px; line-height: 1.35; overflow-wrap: anywhere; }
 .row-date { color: var(--muted); font-size: 11px; }
 .row-hold-reason { color: var(--amber); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.row-assignee { color: var(--muted); font-size: 11px; line-height: 1.4; }
 .row-end { display: flex; align-items: center; color: var(--muted); gap: 5px; flex: none; }
 .return-status.hds-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; border: none; border-radius: 3px; padding: 4px 6px; line-height: 1.2; white-space: nowrap; }
 .return-status > span { background: currentColor; width: 5px; height: 5px; border-radius: 50%; }
@@ -133,6 +137,9 @@ html[lang='en'] .summary dd span { margin-left: 0; }
 .draft-note { padding: 12px clamp(18px, 2.6vw, 32px); background: var(--amber-wash); color: var(--amber); font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .draft-note strong { display: block; }
 .hold-reason { display: grid; gap: 4px; margin: 0 clamp(18px, 2.6vw, 32px) 14px; padding: 12px; background: var(--amber-wash); color: var(--amber); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.assignment { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px clamp(18px, 2.6vw, 32px); border-top: 1px solid var(--line); font-size: 13px; }
+.assignment p:first-child { flex: 1; min-width: 160px; }
+.assignment-notice { flex-basis: 100%; color: var(--amber); }
 .decision-actions { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px clamp(18px, 2.6vw, 32px); background: var(--surface); }
 .decision-actions:empty { display: none; }
 .decision-bar .hds-button { display: inline-flex; align-items: center; gap: 8px; }
