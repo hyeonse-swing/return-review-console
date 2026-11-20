@@ -113,6 +113,35 @@ function Status({ record, language, detailed = false }: { record: ReturnRecord; 
   </Badge>;
 }
 
+function HistoryCopy({ record, language }: { record: ReturnRecord; language: Language }) {
+  const t = copy[language];
+  const [result, setResult] = useState<'copied' | 'failed' | null>(null);
+
+  async function copyHistory() {
+    const lines = [
+      `${t.returnId}: ${record.id}`,
+      `${t.reviewStatus}: ${t[record.status]}`,
+      `${t.history}:`,
+      ...record.events.map(event => {
+        const heading = `${event.at} · ${displayFixture(event.label, language)} · ${displayName(event.actor, language)}`;
+        const memo = event.memo ? `\n${displayMemo(event.id, event.memo, language)}` : '';
+        return `${heading}${memo}`;
+      }),
+    ];
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      setResult('copied');
+    } catch {
+      setResult('failed');
+    }
+  }
+
+  return <>
+    <Button variant="secondary" size="sm" onClick={copyHistory}>{t.copyHistory}</Button>
+    <p role="status">{result === 'copied' ? t.historyCopied : result === 'failed' ? t.historyCopyFailed : ''}</p>
+  </>;
+}
+
 function Approval({ current, reviewer, language, onUpdate }: {
   current: ReturnDetail;
   reviewer: Reviewer;
@@ -636,6 +665,7 @@ function App() {
                   </section>
                   <section className="history" aria-labelledby="history-heading">
                     <h3 id="history-heading">{t.history}</h3>
+                    <HistoryCopy key={`${record.id}:${record.version}:${language}`} record={record} language={language} />
                     <ol>{[...record.events].reverse().map(event => <li key={event.id}>
                       <span className="timeline-icon" aria-hidden="true">{event.label.includes('승인') ? <Check size={14} /> : <ArrowDownLeft size={14} />}</span>
                       <div><strong>{displayFixture(event.label, language)}</strong><p>{displayName(event.actor, language)} <span aria-hidden="true">·</span> {formatDate(event.at, language)}</p>

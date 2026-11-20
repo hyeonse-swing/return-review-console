@@ -251,6 +251,10 @@ async function checkBrowser(name, browserType, bin, cwd, workspace, outputDir) {
     browser = await browserType.launch();
     const page = await browser.newPage({ viewport: { width: 1360, height: 900 }, locale: 'ko-KR' });
     page.setDefaultTimeout(10_000);
+    await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: text => { window.__copiedHistory = text; return Promise.resolve(); } },
+    }));
     const pageErrors = [];
     page.on('pageerror', error => pageErrors.push(error.message));
     const initial = await detail(running.origin);
@@ -271,6 +275,11 @@ async function checkBrowser(name, browserType, bin, cwd, workspace, outputDir) {
     assert.equal(persisted.record.status, 'approved');
     assert.equal(approvalEvents(persisted.record).length, 1);
     assert.equal(approvalEvents(persisted.record)[0].memo, memo);
+    await page.getByRole('button', { name: '처리 내역 복사' }).click();
+    await page.getByRole('status').getByText('처리 내역을 복사했어요.').waitFor();
+    const copiedHistory = await page.evaluate(() => window.__copiedHistory);
+    assert.match(copiedHistory, /^반품 번호: RET-2418\n검수 상태: 승인 완료\n처리 내역:/);
+    assert.match(copiedHistory, new RegExp(`검수 승인 · 민서\\n${memo}`));
     assert.deepEqual(pageErrors, [], `${name} page errors`);
     const screenshot = `${name}-approved.png`;
     await page.screenshot({ path: join(outputDir, screenshot), fullPage: true });
@@ -281,6 +290,10 @@ async function checkBrowser(name, browserType, bin, cwd, workspace, outputDir) {
     assert.equal(await page.evaluate(() => localStorage.getItem('return-review:language')), 'en', `${name} stored language preference`);
     await page.getByRole('heading', { name: 'Washed Cotton Jacket' }).waitFor();
     await page.getByTestId('record-status').getByText('Approved').waitFor();
+    await page.getByRole('button', { name: 'Copy activity history' }).click();
+    const copiedEnglishHistory = await page.evaluate(() => window.__copiedHistory);
+    assert.match(copiedEnglishHistory, /^Return ID: RET-2418\nReview status: Approved\nActivity history:/);
+    assert.match(copiedEnglishHistory, new RegExp(`Review approved · Minseo\\n${memo}`));
     assert.equal((await page.goto(`${running.origin}/?id=${recordId}`)).status(), 200, `${name} language persistence page`);
     await page.waitForFunction(() => document.documentElement.lang === 'en');
     await page.getByRole('heading', { name: 'Washed Cotton Jacket' }).waitFor();
@@ -317,6 +330,7 @@ async function checkBrowser(name, browserType, bin, cwd, workspace, outputDir) {
       accessibleMemoName: '검수 메모',
       approvalHttp: 200,
       approvalEvents: 1,
+      historyCopiedInBothLanguages: true,
       englishLanguageFromUrl: 'en',
       switchedLanguagePersisted: true,
       englishAccessibleDialogName: 'Approve return',

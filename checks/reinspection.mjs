@@ -37,6 +37,10 @@ async function run(browserType) {
     const serverOrigin = `http://127.0.0.1:${server.address().port}`;
     const local = await browser.newPage();
     local.setDefaultTimeout(9_000);
+    await local.addInitScript(() => Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: text => { window.__copiedHistory = text; return Promise.resolve(); } },
+    }));
     await local.goto(`${serverOrigin}/?id=RET-2418`);
     await local.getByRole('heading', { name: '워시드 코튼 재킷' }).waitFor();
     const hold = await act(local, '보류하기', '반품 보류', '');
@@ -54,7 +58,31 @@ async function run(browserType) {
     assert.match(await local.locator('.history').innerText(), /검수 보류[\s\S]*실물 상태 불량|실물 상태 불량[\s\S]*검수 보류/);
     await local.reload();
     await local.getByTestId('record-status').getByText('반려 완료').waitFor();
-
+    await local.getByRole('button', { name: '처리 내역 복사' }).click();
+    await local.getByRole('status').getByText('처리 내역을 복사했어요.').waitFor();
+    const copied = await local.evaluate(() => window.__copiedHistory);
+    assert.match(copied, /^반품 번호: RET-2418\n검수 상태: 반려 완료\n처리 내역:/);
+    assert.match(copied, /검수 보류 · 민서\n상태 재확인 필요/);
+    assert.match(copied, /재검수 반려 · 지훈\n실물 상태 불량/);
+    await local.evaluate(() => Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error('Clipboard unavailable')) },
+    }));
+    await local.getByRole('button', { name: '처리 내역 복사' }).click();
+    await local.getByRole('status').getByText('처리 내역을 복사하지 못했어요.').waitFor();
+    await local.evaluate(() => Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: text => { window.__copiedHistory = text; return Promise.resolve(); } },
+    }));
+    await choose(local, 'RET-2411');
+    await local.getByRole('heading', { name: '와이드 데님 팬츠' }).waitFor();
+    assert.equal(await local.locator('.history [role="status"]').innerText(), '');
+    await local.getByRole('combobox', { name: '언어' }).selectOption('en');
+    await local.getByRole('button', { name: 'Copy activity history' }).click();
+    const copiedEnglish = await local.evaluate(() => window.__copiedHistory);
+    assert.match(copiedEnglish, /^Return ID: RET-2411\nReview status: Approved\nActivity history:/);
+    assert.match(copiedEnglish, /Review approved · Reviewer A/);
+    await local.getByRole('status').getByText('Activity history copied.').waitFor();
     demo = await openDemoPreview();
     const context = await browser.newContext();
     const first = await context.newPage();
