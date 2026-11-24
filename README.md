@@ -43,6 +43,8 @@ The **Returns awaiting reinspection** table shows held records. Use the received
 
 ### Assign a held return
 
+Choose **Unassigned** above the held list to find your next return. Open a return and choose **Assign to me** to take it off that list. It appears there again when you choose **Unassign**. Select the active filter again to see all held returns.
+
 Open a held return and choose **Assign to me**. The current reviewer appears in its details and the held list. Use **Assigned to me** above that list to see your held returns. The assigned reviewer can choose **Unassign** so another reviewer can take it. Assignment tracks work in progress. Review decisions follow the existing rules, including when another reviewer makes the final decision. A final decision clears the assignment and removes the return from the held list.
 
 To try a conflict, open the same held return in two tabs and choose a different reviewer in each. Both tabs can press **Assign to me**. One request succeeds; the other receives the current assignment and can see the winning reviewer. Reload either tab to check persistence. The browser demo stores assignments in IndexedDB within the same browser profile, while the npm app stores them in SQLite across restarts.

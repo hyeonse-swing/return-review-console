@@ -49,9 +49,15 @@ async function run(browserType) {
     await hold.getByRole('button', { name: '보류 확정' }).click();
     await local.getByTestId('record-status').getByText('재검수 대기').waitFor();
     assert.match(await local.getByTestId('row-RET-2418').innerText(), /상태 재확인 필요/);
+    const heldQueue = local.locator('.held-review');
+    await heldQueue.getByRole('button', { name: '미배정' }).click();
+    await heldQueue.getByRole('row').filter({ hasText: 'RET-2418' }).waitFor();
     await local.locator('.assignment').getByRole('button', { name: '내가 맡기' }).click();
     await local.locator('.assignment').getByText('민서').waitFor();
-    assert.match(await local.locator('.held-review').innerText(), /민서/);
+    await heldQueue.getByText('미배정 보류 건이 없어요.').waitFor();
+    await heldQueue.getByRole('button', { name: '내 담당' }).click();
+    assert.equal(await heldQueue.getByRole('button', { name: '미배정' }).getAttribute('aria-pressed'), 'false');
+    await heldQueue.getByRole('row').filter({ hasText: 'RET-2418' }).getByText('민서', { exact: true }).waitFor();
     await local.reload();
     await local.getByTestId('record-status').getByText('재검수 대기').waitFor();
     await local.locator('.assignment').getByRole('button', { name: '담당 해제' }).waitFor();
@@ -152,6 +158,8 @@ async function run(browserType) {
     assert.match(await first.locator('.held-review').innerText(), /RET-2418/);
     await first.locator('.assignment').getByRole('button', { name: '담당 해제' }).click();
     await first.locator('.assignment').getByRole('button', { name: '내가 맡기' }).waitFor();
+    await first.locator('.held-review').getByRole('button', { name: '미배정', exact: true }).click();
+    await first.locator('.held-review').getByRole('row').filter({ hasText: 'RET-2418' }).waitFor();
     await second.reload();
     await second.locator('.assignment').getByRole('button', { name: '내가 맡기' }).click();
     await second.locator('.assignment').getByRole('button', { name: '담당 해제' }).waitFor();

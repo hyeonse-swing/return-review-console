@@ -1,6 +1,6 @@
 {
   "name": "@ihyeon/return-review-console",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "A local return review console with durable approval history",
   "homepage": "https://www.npmjs.com/package/@ihyeon/return-review-console",
   "repository": {

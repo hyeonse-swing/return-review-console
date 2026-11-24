@@ -459,7 +459,7 @@ function App() {
   });
   const [selectedHeldRowId, setSelectedHeldRowId] = useState<string | null>(null);
   const [heldPage, setHeldPage] = useState(1);
-  const [mineOnly, setMineOnly] = useState(false);
+  const [assignmentFilter, setAssignmentFilter] = useState<'all' | 'mine' | 'unassigned'>('all');
   const [search, setSearch] = useState('');
   const [mobileDetail, setMobileDetail] = useState(() => new URLSearchParams(location.search).has('id'));
   const detailHeading = useRef<HTMLHeadingElement>(null);
@@ -475,7 +475,14 @@ function App() {
   const visible = queue.filter(record => (filter === 'all' || record.status === filter)
     && (!query || [record.id, record.item, displayFixture(record.item, language), record.sku]
       .some(value => value.toLocaleLowerCase(language).includes(query))));
-  const held = queue.filter(item => item.status === 'held' && (!mineOnly || item.assignee === reviewer));
+  const held = queue.filter(item => {
+    if (item.status !== 'held') return false;
+    if (assignmentFilter === 'mine') return item.assignee === reviewer;
+    if (assignmentFilter === 'unassigned') return !item.assignee;
+    return true;
+  });
+  const heldEmptyMessages = { all: t.noHeldReturns, mine: t.noMine, unassigned: t.noUnassigned };
+  const selectedStillHeld = held.some(item => item.id === selectedHeldRowId);
   const sortedHeld = [...held].sort((left, right) => {
     if (!heldSort || heldSort.columnId !== 'receivedAt') return 0;
     const direction = heldSort.direction === 'asc' ? 1 : -1;
@@ -490,11 +497,16 @@ function App() {
 
   useEffect(() => {
     if (heldPage > heldPageCount) setHeldPage(heldPageCount);
-    if (selectedHeldRowId && !queue.some(item => item.status === 'held' &&
-      (!mineOnly || item.assignee === reviewer) && item.id === selectedHeldRowId)) {
+    if (selectedHeldRowId && !selectedStillHeld) {
       setSelectedHeldRowId(null);
     }
-  }, [heldPage, heldPageCount, selectedHeldRowId, queue, mineOnly, reviewer]);
+  }, [heldPage, heldPageCount, selectedHeldRowId, selectedStillHeld]);
+
+  function toggleAssignmentFilter(filter: 'mine' | 'unassigned') {
+    setAssignmentFilter(current => current === filter ? 'all' : filter);
+    setHeldPage(1);
+    setSelectedHeldRowId(null);
+  }
 
   useEffect(() => {
     if (!demoChannel) return;
@@ -643,11 +655,10 @@ function App() {
         </dl>
         <section className="held-review" data-mobile-detail={mobileDetail}>
           <div className="held-controls">
-            <button type="button" aria-pressed={mineOnly} onClick={() => {
-              setMineOnly(value => !value);
-              setHeldPage(1);
-              setSelectedHeldRowId(null);
-            }}>{t.mineOnly}</button>
+            <button type="button" aria-pressed={assignmentFilter === 'unassigned'}
+              onClick={() => toggleAssignmentFilter('unassigned')}>{t.unassigned}</button>
+            <button type="button" aria-pressed={assignmentFilter === 'mine'}
+              onClick={() => toggleAssignmentFilter('mine')}>{t.mineOnly}</button>
           </div>
           <DataTable<ReturnRecord>
             caption={t.heldQueue}
@@ -678,7 +689,7 @@ function App() {
             pageSize={heldPageSize}
             locale={language}
             state={queueProblem ? 'error' : queueLoading ? 'loading' : 'ready'}
-            emptyMessage={mineOnly ? t.noMine : t.noHeldReturns}
+            emptyMessage={heldEmptyMessages[assignmentFilter]}
             errorMessage={t.queueError}
           />
         </section>

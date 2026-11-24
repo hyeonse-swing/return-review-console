@@ -72,6 +72,10 @@ async function run(browserType) {
 
     await page.getByRole('combobox', { name: '언어' }).selectOption('en');
     await page.getByRole('table', { name: 'Returns awaiting reinspection' }).waitFor();
+    await page.getByRole('button', { name: 'Unassigned', exact: true }).click();
+    const englishTable = page.getByRole('table', { name: 'Returns awaiting reinspection' });
+    assert.equal(await englishTable.locator('tbody tr').count(), 2);
+    await englishTable.getByRole('row').filter({ hasText: 'RET-2423' }).waitFor();
 
     const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await mobile.goto(`${origin}/?lang=ko`);
