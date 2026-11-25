@@ -48,8 +48,12 @@ const startingLanguage = initialLanguage();
 document.documentElement.lang = startingLanguage;
 document.title = copy[startingLanguage].title;
 
-function formatDate(iso: string, language: Language, short = false) {
-  return formatters[language][short ? 'short' : 'long'].format(new Date(iso));
+function formatDate(value: string | number, language: Language, short = false) {
+  return formatters[language][short ? 'short' : 'long'].format(new Date(value));
+}
+
+function lastHoldEvent(record: ReturnRecord) {
+  return [...record.events].reverse().find(event => event.label === '검수 보류');
 }
 
 function reviewDraft(id: string, reviewer: Reviewer, value?: string, command: ReviewCommand = 'approve'): string {
@@ -483,11 +487,17 @@ function App() {
   });
   const heldEmptyMessages = { all: t.noHeldReturns, mine: t.noMine, unassigned: t.noUnassigned };
   const selectedStillHeld = held.some(item => item.id === selectedHeldRowId);
-  const sortedHeld = [...held].sort((left, right) => {
-    if (!heldSort || heldSort.columnId !== 'receivedAt') return 0;
+  const sortedHeld = held.map(item => {
+    const event = lastHoldEvent(item);
+    return { ...item, holdReason: event?.memo, heldSince: event ? Date.parse(event.at) : NaN };
+  }).sort((left, right) => {
+    if (!heldSort) return 0;
+    const byHold = heldSort.columnId === 'heldSince';
+    const a = byHold ? left.heldSince : Date.parse(left.receivedAt);
+    const b = byHold ? right.heldSince : Date.parse(right.receivedAt);
+    if (Number.isFinite(a) !== Number.isFinite(b)) return Number.isFinite(a) ? -1 : 1;
     const direction = heldSort.direction === 'asc' ? 1 : -1;
-    return direction * (Date.parse(left.receivedAt) - Date.parse(right.receivedAt))
-      || left.id.localeCompare(right.id);
+    return direction * (a - b) || left.id.localeCompare(right.id);
   });
   const heldPageSize = 2;
   const heldPageCount = Math.max(1, Math.ceil(sortedHeld.length / heldPageSize));
@@ -660,15 +670,19 @@ function App() {
             <button type="button" aria-pressed={assignmentFilter === 'mine'}
               onClick={() => toggleAssignmentFilter('mine')}>{t.mineOnly}</button>
           </div>
-          <DataTable<ReturnRecord>
+          <DataTable
             caption={t.heldQueue}
             columns={[
               { id: 'id', header: t.returnId, cell: item => item.id },
               { id: 'receivedAt', header: t.receivedAt, sortable: true,
                 cell: item => formatDate(item.receivedAt, language) },
+              { id: 'heldSince', header: t.heldSince, sortable: true,
+                cell: item => Number.isFinite(item.heldSince)
+                  ? <time dateTime={new Date(item.heldSince).toISOString()}>{formatDate(item.heldSince, language)}</time>
+                  : t.timeNotRecorded },
               { id: 'item', header: t.product, cell: item => displayFixture(item.item, language) },
               { id: 'reason', header: t.holdReason, cell: item =>
-                <span className="held-reason-cell">{[...item.events].reverse().find(event => event.label === '검수 보류')?.memo}</span> },
+                <span className="held-reason-cell">{item.holdReason}</span> },
               { id: 'assignee', header: t.assignee, cell: item =>
                 item.assignee ? displayName(item.assignee, language) : t.unassigned },
               { id: 'status', header: t.reviewStatus, cell: item => <Status record={item} language={language} /> },
@@ -715,7 +729,7 @@ function App() {
                   <span className="row-copy"><span className="row-id">{item.id}</span><strong>{displayFixture(item.item, language)}</strong>
                     <span className="row-date">{language === 'ko' ? `${formatDate(item.receivedAt, language, true)} ${t.received}` : `${t.received} ${formatDate(item.receivedAt, language, true)}`}</span>
                     {item.status === 'held' && <>
-                      <span className="row-hold-reason">{t.holdReason}: {[...item.events].reverse().find(event => event.label === '검수 보류')?.memo}</span>
+                      <span className="row-hold-reason">{t.holdReason}: {lastHoldEvent(item)?.memo}</span>
                       <span className="row-assignee">{t.assignee}: {item.assignee ? displayName(item.assignee, language) : t.unassigned}</span>
                     </>}</span>
                   <span className="row-end"><Status record={item} language={language} /><ChevronRight size={17} aria-hidden="true" /></span>
@@ -756,7 +770,7 @@ function App() {
                     </li>)}</ol>
                   </section>
                 </div>
-                {record.status === 'held' && <p className="hold-reason"><strong>{t.holdReason}</strong>{[...record.events].reverse().find(event => event.label === '검수 보류')?.memo}</p>}
+                {record.status === 'held' && <p className="hold-reason"><strong>{t.holdReason}</strong>{lastHoldEvent(record)?.memo}</p>}
                 <Assignment key={`${record.id}:${reviewer}:assignment`} current={detail} reviewer={reviewer} language={language} onUpdate={update} />
                 <Approval key={`${record.id}:${reviewer}:approval`} current={detail} reviewer={reviewer} language={language} onUpdate={update} />
                 <div className="decision-actions" aria-label={t.reviewDecisions}>

@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { chromium, firefox, webkit } from 'playwright';
 import { createReturnServer } from '../server/index.mjs';
+import { openReturnStorage } from '../server/storage.mjs';
+import fixtures from '../shared/fixtures.json' with { type: 'json' };
 
 async function seedHeld(origin, id) {
   const detail = await fetch(`${origin}/api/returns/${id}`);
@@ -18,13 +23,25 @@ async function seedHeld(origin, id) {
 }
 
 async function run(browserType) {
-  const server = createReturnServer();
+  const dir = await mkdtemp(join(tmpdir(), 'held-table-'));
+  const databasePath = join(dir, 'returns.db');
+  const seed = fixtures.map(item => {
+    if (item.id === 'RET-2421') return { ...item, status: 'held' };
+    if (item.id !== 'RET-2423') return item;
+    return { ...item, status: 'held', events: [...item.events,
+      { id: 'held', at: '2026-11-18T07:35:00Z', actor: '민서', label: '검수 보류', memo: '포장 확인' },
+      { id: 'assigned', at: '2026-11-19T08:00:00Z', actor: '지훈', label: '재검수 담당' },
+      { id: 'released', at: '2026-11-20T09:00:00Z', actor: '지훈', label: '재검수 담당 해제' },
+    ] };
+  });
+  openReturnStorage({ databasePath, fixtures: seed }).close();
+  const server = createReturnServer({ databasePath });
   let browser;
   try {
     server.listen(0, '127.0.0.1');
     await new Promise(resolve => server.once('listening', resolve));
     const origin = `http://127.0.0.1:${server.address().port}`;
-    for (const id of ['RET-2418', 'RET-2421', 'RET-2423']) await seedHeld(origin, id);
+    await seedHeld(origin, 'RET-2418');
     browser = await browserType.launch();
     const page = await browser.newPage({ viewport: { width: 1360, height: 900 } });
     page.setDefaultTimeout(9_000);
@@ -39,6 +56,17 @@ async function run(browserType) {
     assert.match(firstPage[1], /RET-2421/);
     assert.equal(await table.getByRole('columnheader', { name: /입고 시각/ }).getAttribute('aria-sort'), 'ascending');
 
+    const sortByHold = table.getByRole('button', { name: /보류 시작 시각/ });
+    const pageTwo = page.getByRole('navigation', { name: '보류 재검수 목록 · 페이지 이동' }).getByRole('button', { name: '페이지 2' });
+    for (const first of ['RET-2423', 'RET-2418']) {
+      await sortByHold.click();
+      assert.match(await table.locator('tbody tr').first().innerText(), new RegExp(first));
+      assert.equal(await table.getByRole('row').filter({ hasText: 'RET-2423' }).locator('time').getAttribute('datetime'), '2026-11-18T07:35:00.000Z');
+      await pageTwo.click();
+      const undated = table.getByRole('row').filter({ hasText: 'RET-2421' });
+      await undated.getByText('기록 없음', { exact: true }).waitFor();
+    }
+    await table.getByRole('button', { name: /입고 시각/ }).click();
     await table.getByRole('checkbox', { name: /RET-2418/ }).check();
     assert.match(await page.locator('.detail-kicker').innerText(), /RET-2429/);
     await page.getByRole('navigation', { name: '보류 재검수 목록 · 페이지 이동' }).getByRole('button', { name: '페이지 2' }).click();
@@ -74,6 +102,9 @@ async function run(browserType) {
     await page.getByRole('table', { name: 'Returns awaiting reinspection' }).waitFor();
     await page.getByRole('button', { name: 'Unassigned', exact: true }).click();
     const englishTable = page.getByRole('table', { name: 'Returns awaiting reinspection' });
+    await englishTable.getByRole('button', { name: /Held since/ }).click();
+    await englishTable.getByRole('row').filter({ hasText: 'RET-2421' }).getByText('Not recorded').waitFor();
+    assert.match(await englishTable.locator('tbody tr').first().innerText(), /RET-2423/);
     assert.equal(await englishTable.locator('tbody tr').count(), 2);
     await englishTable.getByRole('row').filter({ hasText: 'RET-2423' }).waitFor();
 
@@ -88,6 +119,7 @@ async function run(browserType) {
     await browser?.close();
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
+    await rm(dir, { recursive: true, force: true });
   }
 }
 
