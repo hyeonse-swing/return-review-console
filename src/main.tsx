@@ -163,18 +163,19 @@ function Approval({ current, reviewer, language, onUpdate }: {
   const updatedStatus = useRef<HTMLParagraphElement>(null);
   const moveFocus = useRef(false);
   const dialogNotice = useRef<HTMLParagraphElement>(null);
-  const approved = record.status !== 'pending';
+  const approved = record.status === 'approved';
+  const changed = record.status === 'held' || record.status === 'rejected';
   const conflicted = message === 'conflict';
-  const canConfirm = !approved || pendingOperation !== null;
+  const canConfirm = record.status === 'pending' || pendingOperation !== null;
   const uncertain = pendingOperation !== null && !busy;
   const approvedByCurrentReviewer = conflicted && record.events.some(event => event.label === '검수 승인' && event.actor === reviewer);
 
   useEffect(() => {
-    if (approved && !open && moveFocus.current) {
+    if ((approved || changed) && !open && moveFocus.current) {
       updatedStatus.current?.focus();
       moveFocus.current = false;
     }
-  }, [approved, open]);
+  }, [approved, changed, open]);
 
   useEffect(() => {
     if ((message || uncertain) && open) dialogNotice.current?.focus();
@@ -222,9 +223,9 @@ function Approval({ current, reviewer, language, onUpdate }: {
     <div className="approval-bar">
       <div>
         <p className="approval-label" ref={updatedStatus} tabIndex={-1}>
-          {uncertain ? t.approvalUnknown : approved ? t.approvalDone : t.approvalPrompt}
+          {uncertain ? t.approvalUnknown : approved ? t.approvalDone : changed ? t.approvalChanged : t.approvalPrompt}
         </p>
-        <p className="muted">{uncertain ? t.approvalUnknownHint : approved ? t.approvalDoneHint : t.approvalPromptHint}</p>
+        <p className="muted">{uncertain ? t.approvalUnknownHint : approved ? t.approvalDoneHint : changed ? t.approvalChangedHint : t.approvalPromptHint}</p>
       </div>
       <NativeDialog title={t.dialogTitle} description={`${record.id} · ${displayFixture(record.item, language)}`} closeLabel={t.close} open={open} onOpenChange={changeOpen}
         trigger={<Button className="approve-button" size="lg" hidden={!canConfirm} disabled={!canConfirm}>{uncertain ? t.verifyApproval : t.approveReturn} <ArrowRight size={17} /></Button>}
@@ -614,7 +615,7 @@ function App() {
     const known = latestRecords.current.get(next.record.id);
     if (known && known.version > next.record.version) return;
     latestRecords.current.set(next.record.id, next.record);
-    setDetail(next);
+    setDetail(previous => previous?.record.id === next.record.id ? next : previous);
     setQueue(previous => previous.map(item => item.id === next.record.id ? next.record : item));
   }
 
@@ -739,6 +740,7 @@ function App() {
           <section className="detail" aria-label={t.detail}>
             <button className="back-to-queue" type="button" onClick={() => {
               setMobileDetail(false);
+              updateLocation(null);
               requestAnimationFrame(() => (selectedButton.current ?? queueHeading.current)?.focus());
             }}>
               <ArrowRight size={16} aria-hidden="true" />{t.queue}
