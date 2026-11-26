@@ -29,7 +29,9 @@ npx --yes @ihyeon/return-review-console@latest --lang en --help
 2. Open **Approve return** in both tabs and enter different notes. Choose **Confirm approval** in Minseo’s tab first.
 3. Choose **Confirm approval** in Jihoon’s tab. The console shows that another reviewer completed the return and keeps Jihoon’s draft in that tab. Choose **Close and view history** to see the single recorded approval.
 
-The server compares `If-Match` with the record version and returns `412` with the latest record to a stale editor. If an approval response is lost, use **Check approval result** to retry the same request. The console keeps that request when you reload the same tab. A request that was already committed returns its saved response, even after a server restart.
+The server compares `If-Match` with the ETag from `GET /api/returns/:id` and returns `412` with the latest record to a stale editor. ETags include a durable data-folder identity, so clients should pass the complete ETag unchanged. An old version-only ETag can replay a matching saved receipt, but cannot start a new decision. If an approval response is lost, use **Check approval result** to retry the same request. The console keeps that request when you reload the same tab. A request that was already committed returns its saved response, even after a server restart.
+
+Drafts and pending decisions saved by this version belong to one data folder. If you have a memo from an older version of the console, it appears separately as a read-only memo. Check the data folder before copying it into a new decision.
 
 ### Hold and reinspect
 

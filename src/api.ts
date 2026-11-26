@@ -16,6 +16,7 @@ export interface ReturnRecord {
 export interface ReturnDetail {
   record: ReturnRecord;
   etag: string;
+  workspaceId: string;
 }
 
 export const isWebDemo = import.meta.env.MODE === 'demo';
@@ -28,28 +29,30 @@ function detailUrl(id: string) {
   return `/api/returns/${encodeURIComponent(id)}`;
 }
 
-export async function loadQueue(signal: AbortSignal): Promise<ReturnRecord[]> {
+export async function loadQueue(signal: AbortSignal): Promise<{ records: ReturnRecord[]; workspaceId: string }> {
   if (isWebDemo) return (await import('./demo')).demoQueue(signal);
   const response = await fetch('/api/returns', { signal });
-  if (!response.ok) throw new Error('Queue unavailable');
+  const workspaceId = response.headers.get('X-Workspace-Id');
+  if (!response.ok || !workspaceId) throw new Error('Queue unavailable');
   const { records } = await response.json() as { records: ReturnRecord[] };
-  return records;
+  return { records, workspaceId };
 }
 
 export async function loadDetail(id: string, signal: AbortSignal): Promise<ReturnDetail> {
   if (isWebDemo) return (await import('./demo')).demoDetail(id, signal);
   const response = await fetch(detailUrl(id), { signal });
   const etag = response.headers.get('ETag');
-  if (!response.ok || !etag) throw new Error('Return detail unavailable');
+  const workspaceId = response.headers.get('X-Workspace-Id');
+  if (!response.ok || !etag || !workspaceId) throw new Error('Return detail unavailable');
   const { record } = await response.json() as { record: ReturnRecord };
-  return { record, etag };
+  return { record, etag, workspaceId };
 }
 
 export type ReviewCommand = 'approve' | 'hold' | 'reapprove' | 'reject';
 export type AssignmentCommand = 'assign' | 'unassign';
 export type ReviewResult =
-  | { kind: 'approved'; record: ReturnRecord; etag: string }
-  | { kind: 'conflict'; record: ReturnRecord; etag: string }
+  | { kind: 'approved'; record: ReturnRecord; etag: string; workspaceId: string }
+  | { kind: 'conflict'; record: ReturnRecord; etag: string; workspaceId: string }
   | { kind: 'failed' }
   | { kind: 'uncertain' };
 
@@ -58,7 +61,8 @@ export async function submitReview(command: ReviewCommand | AssignmentCommand, d
     if (isWebDemo) return await (await import('./demo')).demoReview(command, detail, reviewer, memo, operationKey);
     const response = await fetch(`${detailUrl(detail.record.id)}/${command}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'If-Match': detail.etag, 'Idempotency-Key': operationKey },
+      headers: { 'Content-Type': 'application/json', 'If-Match': detail.etag, 'Idempotency-Key': operationKey,
+        'X-Workspace-Id': detail.workspaceId },
       body: JSON.stringify({ reviewer, memo }),
       signal: AbortSignal.timeout(10_000),
     });
@@ -66,7 +70,13 @@ export async function submitReview(command: ReviewCommand | AssignmentCommand, d
       const { record } = await response.json() as { record?: ReturnRecord };
       if (record && typeof record.version === 'number') {
         const etag = response.headers.get('ETag') ?? `"${record.version}"`;
-        return { kind: response.ok ? 'approved' : 'conflict', record, etag };
+        const workspaceId = response.headers.get('X-Workspace-Id');
+        if (!workspaceId) return { kind: 'uncertain' };
+        if (response.ok && response.headers.get('X-Idempotency-Replay') === '1') {
+          const latest = await loadDetail(record.id, AbortSignal.timeout(10_000));
+          return { kind: latest.workspaceId === detail.workspaceId ? 'approved' : 'conflict', ...latest };
+        }
+        return { kind: response.ok ? 'approved' : 'conflict', record, etag, workspaceId };
       }
       return { kind: response.ok ? 'uncertain' : 'failed' };
     }

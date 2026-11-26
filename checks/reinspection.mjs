@@ -125,6 +125,7 @@ async function run(browserType) {
     second.setDefaultTimeout(9_000);
     await second.goto(`${demo.origin}/?id=RET-2421`);
     await second.getByTestId('record-status').getByText('재검수 대기').waitFor();
+    await second.getByRole('combobox', { name: '검수 담당자' }).selectOption('지훈');
     const rejectOther = await act(second, '반려하기', '재검수 반려', '다른 담당자의 반려 사유');
     const approveFirst = await act(first, '재검수 승인', '재검수 승인');
     await approveFirst.getByRole('button', { name: '승인 확정' }).click();

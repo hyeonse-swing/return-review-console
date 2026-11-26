@@ -212,13 +212,17 @@ try {
   await first.getByRole('textbox', { name: '검수 메모' }).fill(winnerMemo);
   await second.getByRole('textbox', { name: '검수 메모' }).fill(draft);
 
+  let submittedEtag;
   async function submit(page, status) {
     const pending = page.waitForResponse(response => new URL(response.url()).pathname === `${recordPath}/approve`
       && response.request().method() === 'POST');
     await page.getByRole('button', { name: '승인 확정' }).click();
     const response = await pending;
     assert.equal(response.status(), status);
-    assert.equal(response.request().headers()['if-match'], '"1"');
+    const etag = response.request().headers()['if-match'];
+    assert.match(etag, /^"[a-f0-9-]{36}:1"$/);
+    if (submittedEtag) assert.equal(etag, submittedEtag);
+    else submittedEtag = etag;
     return response;
   }
 
@@ -258,7 +262,7 @@ try {
   const report = JSON.parse(await readFile(reportPath, 'utf8'));
   assert.equal(report.status, 'passed');
   await writeFile(join(workspace, 'proof.json'), JSON.stringify({
-    browser: browser.version(), firstStatus: 200, secondStatus: 412, sameIfMatch: '"1"',
+    browser: browser.version(), firstStatus: 200, secondStatus: 412, sameIfMatch: submittedEtag,
     draftRecoveredAfterReload: true, draftsIsolatedByReviewer: true, staleQueueReconciledAfterApproval: true,
     staleDetailReconciledAfterFreshQueue: true,
     lostResponseRetriedAfterReloadWithSameKey: true, lostResponseApprovalEntries: 1, sameReviewerConflictAttributedCorrectly: true,

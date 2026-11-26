@@ -31,7 +31,7 @@ test('held return assignment is versioned, exclusive, releasable, and ends with 
       const before = storage.get('RET-2418');
       assert.equal(before.assignee, undefined);
       const hold = storage.transition({
-        command: 'hold', id: before.id, ifMatch: '\"1\"',
+        command: 'hold', id: before.id, ifMatch: `"${storage.workspaceId}:1"`,
         reviewer: '민서', memo: '실물 확인', key: randomUUID(),
       });
       assert.equal(hold.kind, 'committed');
@@ -75,7 +75,7 @@ test('assignment and its receipt survive restart and old records read as unassig
   await withDatabase(async path => {
     let storage = openReturnStorage({ databasePath: path, fixtures });
     const hold = storage.transition({
-      command: 'hold', id: 'RET-2418', ifMatch: '\"1\"',
+      command: 'hold', id: 'RET-2418', ifMatch: `"${storage.workspaceId}:1"`,
       reviewer: '민서', memo: '검수 보류', key: randomUUID(),
     });
     const key = randomUUID();
@@ -101,7 +101,7 @@ test('failed receipt insertion rolls back assignment and permits the same reques
     const storage = openReturnStorage({ databasePath: path, fixtures });
     try {
       const hold = storage.transition({
-        command: 'hold', id: 'RET-2418', ifMatch: '\"1\"',
+        command: 'hold', id: 'RET-2418', ifMatch: `"${storage.workspaceId}:1"`,
         reviewer: '민서', memo: '검수 보류', key: randomUUID(),
       });
       const key = randomUUID();

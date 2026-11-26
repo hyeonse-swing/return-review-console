@@ -31,7 +31,7 @@ const demoChannel = isWebDemo && typeof BroadcastChannel !== 'undefined'
 
 const reviewers = ['민서', '지훈'] as const;
 type Reviewer = typeof reviewers[number];
-type PendingApproval = { key: string; etag: string; memo: string };
+type PendingApproval = { key: string; etag: string; memo: string; workspaceId: string };
 type StatusFilter = 'all' | ReturnRecord['status'];
 const filters: StatusFilter[] = ['all', 'pending', 'held', 'approved', 'rejected'];
 const formatters = {
@@ -56,8 +56,12 @@ function lastHoldEvent(record: ReturnRecord) {
   return [...record.events].reverse().find(event => event.label === '검수 보류');
 }
 
-function reviewDraft(id: string, reviewer: Reviewer, value?: string, command: ReviewCommand = 'approve'): string {
-  const key = `return-review:draft:${id}:${reviewer}${command === 'approve' ? '' : `:${command}`}`;
+function recordEtag(workspaceId: string, record: ReturnRecord) {
+  return `"${workspaceId}:${record.version}"`;
+}
+
+function reviewDraft(id: string, reviewer: Reviewer, workspaceId: string, value?: string, command: ReviewCommand = 'approve'): string {
+  const key = `return-review:draft:${workspaceId}:${id}:${reviewer}:${command}`;
   try {
     if (value === undefined) return sessionStorage.getItem(key) ?? '';
     if (value) sessionStorage.setItem(key, value);
@@ -66,27 +70,28 @@ function reviewDraft(id: string, reviewer: Reviewer, value?: string, command: Re
   return value ?? '';
 }
 
-function pendingApprovalKey(id: string, reviewer: Reviewer, command: ReviewCommand | AssignmentCommand = 'approve') {
-  return `return-review:pending-${command === 'approve' ? 'approval' : command}:${id}:${reviewer}`;
+function pendingApprovalKey(id: string, reviewer: Reviewer, workspaceId: string, command: ReviewCommand | AssignmentCommand = 'approve') {
+  return `return-review:pending-${command === 'approve' ? 'approval' : command}:${workspaceId}:${id}:${reviewer}`;
 }
 
-function readPendingApproval(id: string, reviewer: Reviewer, command: ReviewCommand | AssignmentCommand = 'approve'): PendingApproval | null {
+function readPendingApproval(id: string, reviewer: Reviewer, workspaceId: string, command: ReviewCommand | AssignmentCommand = 'approve'): PendingApproval | null {
   try {
-    const value = sessionStorage.getItem(pendingApprovalKey(id, reviewer, command));
+    const value = sessionStorage.getItem(pendingApprovalKey(id, reviewer, workspaceId, command));
     if (!value) return null;
     const operation: Partial<PendingApproval> | null = JSON.parse(value);
     if (typeof operation?.key === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(operation.key)
         && typeof operation.etag === 'string' && /^"(?:[a-f0-9-]{36}:)?[1-9]\d*"$/.test(operation.etag)
-        && typeof operation.memo === 'string' && operation.memo.length <= 500) {
-      return { key: operation.key, etag: operation.etag, memo: operation.memo };
+        && typeof operation.memo === 'string' && operation.memo.length <= 500
+        && operation.workspaceId === workspaceId) {
+      return { key: operation.key, etag: operation.etag, memo: operation.memo, workspaceId };
     }
   } catch { /* Invalid or unavailable storage leaves the tab in its default state. */ }
   return null;
 }
 
-function writePendingApproval(id: string, reviewer: Reviewer, operation: PendingApproval | null, command: ReviewCommand | AssignmentCommand = 'approve') {
+function writePendingApproval(id: string, reviewer: Reviewer, workspaceId: string, operation: PendingApproval | null, command: ReviewCommand | AssignmentCommand = 'approve') {
   try {
-    const key = pendingApprovalKey(id, reviewer, command);
+    const key = pendingApprovalKey(id, reviewer, workspaceId, command);
     if (operation) sessionStorage.setItem(key, JSON.stringify(operation));
     else sessionStorage.removeItem(key);
   } catch { /* The current component retains the request when storage is unavailable. */ }
@@ -101,6 +106,35 @@ function clearDemoReviewState() {
       }
     }
   } catch { /* The browser may block session storage. */ }
+}
+
+function legacyReviewNotes(id: string, reviewer: Reviewer) {
+  const notes: Array<{ command: ReviewCommand; text: string }> = [];
+  try {
+    for (const command of ['approve', 'hold', 'reapprove', 'reject'] as const) {
+      const draftKey = `return-review:draft:${id}:${reviewer}${command === 'approve' ? '' : `:${command}`}`;
+      const pendingKey = `return-review:pending-${command === 'approve' ? 'approval' : command}:${id}:${reviewer}`;
+      const draft = sessionStorage.getItem(draftKey);
+      const saved = sessionStorage.getItem(pendingKey);
+      const pending = saved ? JSON.parse(saved) as { memo?: unknown } : null;
+      const text = draft || (typeof pending?.memo === 'string' ? pending.memo : '');
+      if (text && text.length <= 500) notes.push({ command, text });
+    }
+  } catch { /* Older browser storage may be unavailable or malformed. */ }
+  return notes;
+}
+
+function LegacyReviewNotes({ id, reviewer, language }: { id: string; reviewer: Reviewer; language: Language }) {
+  const notes = legacyReviewNotes(id, reviewer);
+  if (notes.length === 0) return null;
+  const t = copy[language];
+  const labels = { approve: t.approveReturn, hold: t.holdReturn, reapprove: t.reapproveReturn, reject: t.rejectReturn };
+  return <section className="legacy-notes" aria-label={t.previousDrafts}>
+    <p>{t.previousDraftHint}</p>
+    {notes.map(note => <p className="draft-note" key={note.command}>
+      <strong>{t.previousDrafts} · {labels[note.command]}</strong>{note.text}
+    </p>)}
+  </section>;
 }
 
 function updateLocation(id: string | null) {
@@ -155,9 +189,9 @@ function Approval({ current, reviewer, language, onUpdate }: {
   const { record } = current;
   const t = copy[language];
   const [open, setOpen] = useState(false);
-  const [pendingOperation, setPendingOperation] = useState(() => readPendingApproval(record.id, reviewer));
-  const [memo, setMemo] = useState(() => pendingOperation?.memo ?? reviewDraft(record.id, reviewer));
-  const [message, setMessage] = useState<'conflict' | 'failed' | null>(null);
+  const [pendingOperation, setPendingOperation] = useState(() => readPendingApproval(record.id, reviewer, current.workspaceId));
+  const [memo, setMemo] = useState(() => pendingOperation?.memo ?? reviewDraft(record.id, reviewer, current.workspaceId));
+  const [message, setMessage] = useState<'conflict' | 'workspace' | 'failed' | null>(null);
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
   const updatedStatus = useRef<HTMLParagraphElement>(null);
@@ -165,10 +199,14 @@ function Approval({ current, reviewer, language, onUpdate }: {
   const dialogNotice = useRef<HTMLParagraphElement>(null);
   const approved = record.status === 'approved';
   const changed = record.status === 'held' || record.status === 'rejected';
-  const conflicted = message === 'conflict';
+  const conflicted = message === 'conflict' || message === 'workspace';
   const canConfirm = record.status === 'pending' || pendingOperation !== null;
   const uncertain = pendingOperation !== null && !busy;
-  const approvedByCurrentReviewer = conflicted && record.events.some(event => event.label === '검수 승인' && event.actor === reviewer);
+  const latestEvent = record.events.at(-1);
+  const conflictCopy = message === 'workspace' ? t.workspaceChanged
+    : latestEvent?.actor === reviewer
+      ? record.status === 'approved' && latestEvent.label === '검수 승인' ? t.conflictSelf : t.conflictSame
+      : reviewers.some(name => name === latestEvent?.actor) ? t.conflictOther : t.conflictChanged;
 
   useEffect(() => {
     if ((approved || changed) && !open && moveFocus.current) {
@@ -188,32 +226,42 @@ function Approval({ current, reviewer, language, onUpdate }: {
     setOpen(next);
   }
 
-  if ((record.status === 'held' || record.status === 'rejected') && !pendingOperation && !conflicted) return null;
+  if ((record.status === 'held' || record.status === 'rejected') && !pendingOperation && !conflicted) {
+    return memo ? <p className="draft-note"><strong>{t.savedDraft} · {t.approveReturn}</strong>{memo}</p> : null;
+  }
 
   async function confirm() {
     if (submitting.current || !canConfirm) return;
     submitting.current = true;
     setBusy(true);
     setMessage(null);
-    const operation = pendingOperation ?? { key: crypto.randomUUID(), etag: current.etag, memo };
-    writePendingApproval(record.id, reviewer, operation);
+    const operation = pendingOperation ?? { key: crypto.randomUUID(), etag: current.etag, memo, workspaceId: current.workspaceId };
+    if (operation.workspaceId !== current.workspaceId) {
+      submitting.current = false;
+      setBusy(false);
+      writePendingApproval(record.id, reviewer, operation.workspaceId, null);
+      setPendingOperation(null);
+      setMessage('workspace');
+      return;
+    }
+    writePendingApproval(record.id, reviewer, operation.workspaceId, operation);
     setPendingOperation(operation);
-    const result = await approve({ ...current, etag: operation.etag }, reviewer, operation.memo, operation.key);
+    const result = await approve({ ...current, etag: operation.etag, workspaceId: operation.workspaceId }, reviewer, operation.memo, operation.key);
     submitting.current = false;
     setBusy(false);
     if (result.kind === 'uncertain') return;
-    writePendingApproval(record.id, reviewer, null);
+    writePendingApproval(record.id, reviewer, operation.workspaceId, null);
     setPendingOperation(null);
     if (result.kind === 'failed') {
       setMessage('failed');
       return;
     }
-    onUpdate({ record: result.record, etag: result.etag });
+    onUpdate({ record: result.record, etag: result.etag, workspaceId: result.workspaceId });
     if (result.kind === 'conflict') {
-      setMessage('conflict');
+      setMessage(result.workspaceId === operation.workspaceId ? 'conflict' : 'workspace');
       return;
     }
-    reviewDraft(record.id, reviewer, '');
+    reviewDraft(record.id, reviewer, operation.workspaceId, '');
     setMemo('');
     moveFocus.current = true;
     setOpen(false);
@@ -240,10 +288,10 @@ function Approval({ current, reviewer, language, onUpdate }: {
             <CircleAlert size={18} aria-hidden="true" />{t.uncertainNotice}
           </p>}
           {conflicted && <p className="notice" role="alert" ref={dialogNotice} tabIndex={-1}>
-            <CircleAlert size={18} aria-hidden="true" />{approvedByCurrentReviewer ? t.conflictSelf : t.conflictOther}{t.conflictFollowup}
+            <CircleAlert size={18} aria-hidden="true" />{conflictCopy}{t.conflictFollowup}
           </p>}
           <Textarea label={t.memo} hint={conflicted ? undefined : t.memoHint} rows={4} maxLength={500}
-            value={memo} readOnly={conflicted || busy || uncertain} onChange={event => setMemo(reviewDraft(record.id, reviewer, event.target.value))} />
+            value={memo} readOnly={conflicted || busy || uncertain} onChange={event => setMemo(reviewDraft(record.id, reviewer, current.workspaceId, event.target.value))} />
         </form>
       </NativeDialog>
     </div>
@@ -261,9 +309,9 @@ function ReviewDecision({ command, current, reviewer, language, onUpdate }: {
   const { record } = current;
   const t = copy[language];
   const [open, setOpen] = useState(false);
-  const [pendingOperation, setPendingOperation] = useState(() => readPendingApproval(record.id, reviewer, command));
-  const [memo, setMemo] = useState(() => pendingOperation?.memo ?? reviewDraft(record.id, reviewer, undefined, command));
-  const [message, setMessage] = useState<'conflict' | 'failed' | null>(null);
+  const [pendingOperation, setPendingOperation] = useState(() => readPendingApproval(record.id, reviewer, current.workspaceId, command));
+  const [memo, setMemo] = useState(() => pendingOperation?.memo ?? reviewDraft(record.id, reviewer, current.workspaceId, undefined, command));
+  const [message, setMessage] = useState<'conflict' | 'workspace' | 'failed' | null>(null);
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
   const notice = useRef<HTMLParagraphElement>(null);
@@ -285,53 +333,65 @@ function ReviewDecision({ command, current, reviewer, language, onUpdate }: {
     submitting.current = true;
     setBusy(true);
     setMessage(null);
-    const operation = pendingOperation ?? { key: crypto.randomUUID(), etag: current.etag, memo };
-    writePendingApproval(record.id, reviewer, operation, command);
+    const operation = pendingOperation ?? { key: crypto.randomUUID(), etag: current.etag, memo, workspaceId: current.workspaceId };
+    if (operation.workspaceId !== current.workspaceId) {
+      submitting.current = false;
+      setBusy(false);
+      writePendingApproval(record.id, reviewer, operation.workspaceId, null, command);
+      setPendingOperation(null);
+      setMessage('workspace');
+      return;
+    }
+    writePendingApproval(record.id, reviewer, operation.workspaceId, operation, command);
     setPendingOperation(operation);
-    const result = await submitReview(command, { ...current, etag: operation.etag }, reviewer, operation.memo, operation.key);
+    const result = await submitReview(command, { ...current, etag: operation.etag, workspaceId: operation.workspaceId }, reviewer, operation.memo, operation.key);
     submitting.current = false;
     setBusy(false);
     if (result.kind === 'uncertain') return;
-    writePendingApproval(record.id, reviewer, null, command);
+    writePendingApproval(record.id, reviewer, operation.workspaceId, null, command);
     setPendingOperation(null);
     if (result.kind === 'failed') {
       setMessage('failed');
       return;
     }
-    onUpdate({ record: result.record, etag: result.etag });
+    onUpdate({ record: result.record, etag: result.etag, workspaceId: result.workspaceId });
     if (result.kind === 'conflict') {
-      setMessage('conflict');
+      setMessage(result.workspaceId === operation.workspaceId ? 'conflict' : 'workspace');
       return;
     }
-    reviewDraft(record.id, reviewer, '', command);
+    reviewDraft(record.id, reviewer, operation.workspaceId, '', command);
     setMemo('');
     setOpen(false);
   }
 
-  if (!allowed && !pendingOperation && message !== 'conflict') return null;
+  if (!allowed && !pendingOperation && message !== 'conflict' && message !== 'workspace') {
+    return memo ? <p className="draft-note"><strong>{t.savedDraft} · {label}</strong>{memo}</p> : null;
+  }
   return <div className="decision-bar">
     <NativeDialog title={title} description={`${record.id} · ${displayFixture(record.item, language)}`} closeLabel={t.close}
       open={open} onOpenChange={next => {
         if (submitting.current) return;
-        if (next || message === 'conflict') setMessage(null);
+        if (next || message === 'conflict' || message === 'workspace') setMessage(null);
         setOpen(next);
       }}
       trigger={<Button variant={command === 'reject' || command === 'hold' ? 'secondary' : 'primary'} size="lg">
         {uncertain ? t.verifyDecision : label}<ArrowRight size={17} />
       </Button>}
       footer={<>
-        <Button variant="secondary" onClick={() => { setOpen(false); if (message === 'conflict') setMessage(null); }} disabled={busy}>{message === 'conflict' ? t.closeAndHistory : t.cancel}</Button>
-        {message !== 'conflict' && <Button type="submit" form={`review-${command}-form`} loading={busy} loadingLabel={busyLabel}
+        <Button variant="secondary" onClick={() => { setOpen(false); if (message === 'conflict' || message === 'workspace') setMessage(null); }} disabled={busy}>{message === 'conflict' || message === 'workspace' ? t.closeAndHistory : t.cancel}</Button>
+        {message !== 'conflict' && message !== 'workspace' && <Button type="submit" form={`review-${command}-form`} loading={busy} loadingLabel={busyLabel}
           disabled={!uncertain && required && !memo.trim()}>{uncertain ? t.retrySameRequest : confirmLabel}</Button>}
       </>}>
       <form id={`review-${command}-form`} className="approval-form" onSubmit={event => { event.preventDefault(); void confirm(); }}>
         <p className="reviewer-line"><UserRound size={16} aria-hidden="true" />{t.reviewerApproval(displayName(reviewer, language))}</p>
         {message === 'failed' && <p className="notice notice--error" role="alert" ref={notice} tabIndex={-1}><CircleAlert size={18} aria-hidden="true" />{t.decisionFailed}</p>}
         {uncertain && <p className="notice notice--error" role="alert" ref={notice} tabIndex={-1}><CircleAlert size={18} aria-hidden="true" />{t.decisionUncertain}</p>}
-        {message === 'conflict' && <p className="notice" role="alert" ref={notice} tabIndex={-1}><CircleAlert size={18} aria-hidden="true" />{t.conflictOther}{t.conflictFollowup}</p>}
+        {(message === 'conflict' || message === 'workspace') && <p className="notice" role="alert" ref={notice} tabIndex={-1}><CircleAlert size={18} aria-hidden="true" />
+          {message === 'workspace' ? t.workspaceChanged : record.events.at(-1)?.actor === reviewer ? t.conflictSame
+            : reviewers.some(name => name === record.events.at(-1)?.actor) ? t.conflictOther : t.conflictChanged}{t.conflictFollowup}</p>}
         <Textarea label={required ? t.decisionReason : t.memo} hint={hint} rows={4} maxLength={500}
-          value={memo} readOnly={message === 'conflict' || busy || uncertain}
-          onChange={event => setMemo(reviewDraft(record.id, reviewer, event.target.value, command))} />
+          value={memo} readOnly={message === 'conflict' || message === 'workspace' || busy || uncertain}
+          onChange={event => setMemo(reviewDraft(record.id, reviewer, current.workspaceId, event.target.value, command))} />
       </form>
     </NativeDialog>
   </div>;
@@ -348,8 +408,8 @@ function Assignment({ current, reviewer, language, onUpdate }: {
   const { record } = current;
   const t = copy[language];
   const [pending, setPending] = useState<PendingAssignment | null>(() => {
-    const assign = readPendingApproval(record.id, reviewer, 'assign');
-    const unassign = readPendingApproval(record.id, reviewer, 'unassign');
+    const assign = readPendingApproval(record.id, reviewer, current.workspaceId, 'assign');
+    const unassign = readPendingApproval(record.id, reviewer, current.workspaceId, 'unassign');
     return assign ? { ...assign, command: 'assign' } : unassign ? { ...unassign, command: 'unassign' } : null;
   });
   const [message, setMessage] = useState<'conflict' | 'failed' | null>(null);
@@ -366,22 +426,30 @@ function Assignment({ current, reviewer, language, onUpdate }: {
     setBusy(true);
     setMessage(null);
     const operation: PendingAssignment = pending ?? {
-      command: action, key: crypto.randomUUID(), etag: current.etag, memo: '',
+      command: action, key: crypto.randomUUID(), etag: current.etag, memo: '', workspaceId: current.workspaceId,
     };
-    writePendingApproval(record.id, reviewer, operation, operation.command);
+    if (operation.workspaceId !== current.workspaceId) {
+      submitting.current = false;
+      setBusy(false);
+      writePendingApproval(record.id, reviewer, operation.workspaceId, null, operation.command);
+      setPending(null);
+      setMessage('conflict');
+      return;
+    }
+    writePendingApproval(record.id, reviewer, operation.workspaceId, operation, operation.command);
     setPending(operation);
-    const result = await submitReview(operation.command, { ...current, etag: operation.etag },
+    const result = await submitReview(operation.command, { ...current, etag: operation.etag, workspaceId: operation.workspaceId },
       reviewer, '', operation.key);
     submitting.current = false;
     setBusy(false);
     if (result.kind === 'uncertain') return;
-    writePendingApproval(record.id, reviewer, null, operation.command);
+    writePendingApproval(record.id, reviewer, operation.workspaceId, null, operation.command);
     setPending(null);
     if (result.kind === 'failed') {
       setMessage('failed');
       return;
     }
-    onUpdate({ record: result.record, etag: result.etag });
+    onUpdate({ record: result.record, etag: result.etag, workspaceId: result.workspaceId });
     if (result.kind === 'conflict') setMessage('conflict');
   }
 
@@ -458,6 +526,9 @@ function App() {
     catch { return '민서'; }
   });
   const latestRecords = useRef(new Map<string, ReturnRecord>());
+  const workspaceId = useRef<string | null>(null);
+  const requestSequence = useRef(0);
+  const acceptedWorkspaceRequest = useRef(0);
   const [filter, setFilter] = useState<StatusFilter>('all');
   const [heldSort, setHeldSort] = useState<{ columnId: string; direction: 'asc' | 'desc' } | null>({
     columnId: 'receivedAt', direction: 'asc',
@@ -544,16 +615,43 @@ function App() {
     setLanguage(next);
   }
 
+  function acceptWorkspace(next: string, requestNumber: number) {
+    if (workspaceId.current !== next) {
+      if (requestNumber < acceptedWorkspaceRequest.current) return false;
+      const changed = workspaceId.current !== null;
+      workspaceId.current = next;
+      latestRecords.current.clear();
+      setQueue([]);
+      setDetail(null);
+      if (changed) {
+        setQueueLoading(true);
+        setReload(previous => previous + 1);
+      }
+    }
+    acceptedWorkspaceRequest.current = Math.max(acceptedWorkspaceRequest.current, requestNumber);
+    return true;
+  }
+
   useEffect(() => {
     const controller = new AbortController();
-    loadQueue(controller.signal).then(records => {
+    const requestNumber = ++requestSequence.current;
+    loadQueue(controller.signal).then(({ records, workspaceId: nextWorkspace }) => {
       if (controller.signal.aborted) return;
-      setQueue(records.map(item => {
+      if (!acceptWorkspace(nextWorkspace, requestNumber)) return;
+      const merged = records.map(item => {
         const known = latestRecords.current.get(item.id);
         const current = known && known.version > item.version ? known : item;
         latestRecords.current.set(item.id, current);
         return current;
-      }));
+      });
+      setQueue(merged);
+      setDetail(previous => {
+        if (!previous || previous.workspaceId !== nextWorkspace) return previous;
+        const newer = merged.find(item => item.id === previous.record.id);
+        return newer && newer.version > previous.record.version
+          ? { record: newer, etag: recordEtag(nextWorkspace, newer), workspaceId: nextWorkspace }
+          : previous;
+      });
       const linkedId = new URLSearchParams(location.search).get('id');
       if (linkedId && !records.some(item => item.id === linkedId)) updateLocation(records[0]?.id ?? null);
       setSelected(previous => records.some(item => item.id === previous) ? previous : records[0]?.id ?? null);
@@ -570,13 +668,16 @@ function App() {
   useEffect(() => {
     if (!selected) return;
     const controller = new AbortController();
+    const requestNumber = ++requestSequence.current;
     loadDetail(selected, controller.signal).then(result => {
       if (controller.signal.aborted) return;
+      if (!acceptWorkspace(result.workspaceId, requestNumber)) return;
       const known = latestRecords.current.get(result.record.id);
       const record = known && known.version > result.record.version ? known : result.record;
       latestRecords.current.set(record.id, record);
       setDetailProblem(false);
-      setDetail({ record, etag: record === result.record ? result.etag : `"${record.version}"` });
+      setDetail({ record, etag: record === result.record ? result.etag : recordEtag(result.workspaceId, record),
+        workspaceId: result.workspaceId });
       setQueue(previous => previous.map(item => item.id === selected && item.version <= record.version ? record : item));
     }).catch(() => {
       if (!controller.signal.aborted) setDetailProblem(true);
@@ -612,6 +713,10 @@ function App() {
   }
 
   function update(next: ReturnDetail) {
+    if (next.workspaceId !== workspaceId.current) {
+      refresh();
+      return;
+    }
     const known = latestRecords.current.get(next.record.id);
     if (known && known.version > next.record.version) return;
     latestRecords.current.set(next.record.id, next.record);
@@ -773,12 +878,13 @@ function App() {
                   </section>
                 </div>
                 {record.status === 'held' && <p className="hold-reason"><strong>{t.holdReason}</strong>{lastHoldEvent(record)?.memo}</p>}
-                <Assignment key={`${record.id}:${reviewer}:assignment`} current={detail} reviewer={reviewer} language={language} onUpdate={update} />
-                <Approval key={`${record.id}:${reviewer}:approval`} current={detail} reviewer={reviewer} language={language} onUpdate={update} />
+                <LegacyReviewNotes id={record.id} reviewer={reviewer} language={language} />
+                <Assignment key={`${detail.workspaceId}:${record.id}:${reviewer}:assignment`} current={detail} reviewer={reviewer} language={language} onUpdate={update} />
+                <Approval key={`${detail.workspaceId}:${record.id}:${reviewer}:approval`} current={detail} reviewer={reviewer} language={language} onUpdate={update} />
                 <div className="decision-actions" aria-label={t.reviewDecisions}>
-                  <ReviewDecision key={`${record.id}:${reviewer}:hold`} command="hold" current={detail} reviewer={reviewer} language={language} onUpdate={update} />
-                  <ReviewDecision key={`${record.id}:${reviewer}:reapprove`} command="reapprove" current={detail} reviewer={reviewer} language={language} onUpdate={update} />
-                  <ReviewDecision key={`${record.id}:${reviewer}:reject`} command="reject" current={detail} reviewer={reviewer} language={language} onUpdate={update} />
+                  <ReviewDecision key={`${detail.workspaceId}:${record.id}:${reviewer}:hold`} command="hold" current={detail} reviewer={reviewer} language={language} onUpdate={update} />
+                  <ReviewDecision key={`${detail.workspaceId}:${record.id}:${reviewer}:reapprove`} command="reapprove" current={detail} reviewer={reviewer} language={language} onUpdate={update} />
+                  <ReviewDecision key={`${detail.workspaceId}:${record.id}:${reviewer}:reject`} command="reject" current={detail} reviewer={reviewer} language={language} onUpdate={update} />
                 </div>
                 {record.status === 'rejected' && <p className="decision-complete">{t.decisionComplete}</p>}
               </> : <p className="queue-message" role="status">{selected ? t.detailLoading : t.detailEmpty}</p>}

@@ -37,8 +37,8 @@ function json(response, status, value, headers = {}) {
   response.end(JSON.stringify(value));
 }
 
-function versionTag(record) {
-  return `"${record.version}"`;
+function versionTag(record, workspaceId) {
+  return `"${workspaceId}:${record.version}"`;
 }
 
 async function readJson(request) {
@@ -132,7 +132,7 @@ export function createReturnServer({ qa = process.env.RETURN_QA === '1', databas
       const method = request.method;
 
       if (method === 'GET' && pathname === '/api/returns') {
-        json(response, 200, { records: storage.list() });
+        json(response, 200, { records: storage.list() }, { 'X-Workspace-Id': storage.workspaceId });
         return;
       }
 
@@ -142,7 +142,7 @@ export function createReturnServer({ qa = process.env.RETURN_QA === '1', databas
         if (!record) throw new HttpError(404, 'NOT_FOUND', '반품 건을 찾을 수 없습니다.');
 
         if (method === 'GET') {
-          json(response, 200, { record }, { ETag: versionTag(record) });
+          json(response, 200, { record }, { ETag: versionTag(record, storage.workspaceId), 'X-Workspace-Id': storage.workspaceId });
           return;
         }
       }
@@ -155,7 +155,7 @@ export function createReturnServer({ qa = process.env.RETURN_QA === '1', databas
 
         const ifMatch = request.headers['if-match'];
         if (!ifMatch) throw new HttpError(428, 'PRECONDITION_REQUIRED', '최신 버전으로 다시 요청해 주세요.');
-        if (typeof ifMatch !== 'string' || !/^"[1-9]\d*"$/.test(ifMatch)) {
+        if (typeof ifMatch !== 'string' || !/^"(?:[a-f0-9-]{36}:)?[1-9]\d*"$/i.test(ifMatch)) {
           throw new HttpError(400, 'INVALID_VERSION', '올바른 If-Match 버전이 필요합니다.');
         }
 
@@ -178,6 +178,11 @@ export function createReturnServer({ qa = process.env.RETURN_QA === '1', databas
         const key = rawKey?.toLowerCase();
         const reviewer = body.reviewer.trim();
         const memo = body.memo?.trim() ?? '';
+        if (request.headers['x-workspace-id'] !== undefined && request.headers['x-workspace-id'] !== storage.workspaceId) {
+          json(response, 412, { code: 'STALE_WORKSPACE', message: '다른 데이터 폴더의 요청입니다.', record },
+            { ETag: versionTag(record, storage.workspaceId), 'X-Workspace-Id': storage.workspaceId });
+          return;
+        }
         const result = storage.transition({ command, id: record.id, ifMatch, reviewer, memo, key, unavailable: approvalFault });
         if (result.kind === 'reusedKey') {
           throw new HttpError(409, 'IDEMPOTENCY_KEY_REUSED', '같은 요청 ID로 다른 결정을 보낼 수 없습니다.');
@@ -189,17 +194,22 @@ export function createReturnServer({ qa = process.env.RETURN_QA === '1', databas
           return;
         }
         if (result.kind === 'stale') {
-          json(response, 412, { code: 'STALE_VERSION', message: '다른 담당자가 먼저 이 반품 건을 처리했습니다.', record: result.record }, { ETag: result.etag });
+          json(response, 412, { code: 'STALE_VERSION', message: '다른 담당자가 먼저 이 반품 건을 처리했습니다.', record: result.record },
+            { ETag: result.etag, 'X-Workspace-Id': storage.workspaceId });
           return;
         }
         if (result.kind === 'invalidTransition') {
           const alreadyApproved = command === 'approve' && result.record.status === 'approved';
           json(response, 409, { code: alreadyApproved ? 'ALREADY_APPROVED' : 'INVALID_TRANSITION',
             message: alreadyApproved ? '이미 승인된 반품 건입니다.' : '현재 상태에서 처리할 수 없는 결정입니다.',
-            record: result.record }, { ETag: result.etag });
+            record: result.record }, { ETag: result.etag, 'X-Workspace-Id': storage.workspaceId });
           return;
         }
-        json(response, 200, { record: result.record }, { ETag: result.etag });
+        json(response, 200, { record: result.record }, {
+          ETag: result.etag,
+          'X-Workspace-Id': storage.workspaceId,
+          ...(result.kind === 'replay' ? { 'X-Idempotency-Replay': '1' } : {}),
+        });
         return;
       }
 

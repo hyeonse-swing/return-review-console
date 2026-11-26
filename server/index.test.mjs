@@ -54,6 +54,10 @@ async function getRecord(url, id = 'RET-2418') {
   return { etag: response.headers.get('etag'), record: (await response.json()).record };
 }
 
+function nextTag(etag, version) {
+  return etag.replace(/:[1-9]\d*"$/, `:${version}"`);
+}
+
 function approve(url, id, etag, reviewer, memo, key) {
   return fetch(`${url}/api/returns/${id}/approve`, {
     method: 'POST',
@@ -170,7 +174,7 @@ async function setFault(url, on) {
 test('only one concurrent approval is committed, and stale editors receive the latest record', async () => {
   await withServer(false, async url => {
     const initial = await getRecord(url);
-    assert.equal(initial.etag, '"1"');
+    assert.match(initial.etag, /^"[a-f0-9-]{36}:1"$/);
     assert.equal(initial.record.status, 'pending');
 
     const responses = await Promise.all([
@@ -180,13 +184,13 @@ test('only one concurrent approval is committed, and stale editors receive the l
     assert.deepEqual(responses.map(response => response.status).sort(), [200, 412]);
 
     const stale = responses.find(response => response.status === 412);
-    assert.equal(stale.headers.get('etag'), '"2"');
+    assert.equal(stale.headers.get('etag'), nextTag(initial.etag, 2));
     const staleBody = await stale.json();
     assert.equal(staleBody.code, 'STALE_VERSION');
     assert.equal(staleBody.record.status, 'approved');
 
     const latest = await getRecord(url);
-    assert.equal(latest.etag, '"2"');
+    assert.equal(latest.etag, nextTag(initial.etag, 2));
     assert.equal(latest.record.version, 2);
     assert.equal(latest.record.events.filter(event => event.label === '검수 승인').length, 1);
     assert.equal(latest.record.events.at(-1).memo, (await responses.find(response => response.status === 200).json()).record.events.at(-1).memo);
@@ -211,7 +215,7 @@ test('503 fault leaves version and history unchanged, then the same request can 
     assert.equal((await setFault(url, false)).status, 200);
     const recovered = await approve(url, 'RET-2421', initial.etag, '검수 담당 A', '상태 확인 완료');
     assert.equal(recovered.status, 200);
-    assert.equal(recovered.headers.get('etag'), '"2"');
+    assert.equal(recovered.headers.get('etag'), nextTag(initial.etag, 2));
     const afterRetry = await getRecord(url, 'RET-2421');
     assert.equal(afterRetry.record.status, 'approved');
     assert.equal(afterRetry.record.events.filter(event => event.label === '검수 승인').length, 1);
@@ -229,7 +233,7 @@ test('a lost success response can be replayed with the same request ID, even dur
 
     const replay = await approve(url, 'RET-2418', initial.etag, ' 민서 ', ' 상태 확인 ', key);
     assert.equal(replay.status, 200);
-    assert.equal(replay.headers.get('etag'), '"2"');
+    assert.equal(replay.headers.get('etag'), nextTag(initial.etag, 2));
     assert.deepEqual(await replay.json(), firstBody);
 
     assert.equal((await setFault(url, true)).status, 200);
@@ -240,6 +244,56 @@ test('a lost success response can be replayed with the same request ID, even dur
     const latest = await getRecord(url);
     assert.equal(latest.record.events.filter(event => event.label === '검수 승인').length, 1);
     assert.equal(latest.record.version, 2);
+  });
+});
+
+test('a stale tab cannot write to a different data folder with the same record version', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'return-workspace-test-'));
+  const firstPath = join(directory, 'first.sqlite');
+  const secondPath = join(directory, 'second.sqlite');
+  let firstEtag;
+  let firstWorkspace;
+  try {
+    await withServer(false, async url => {
+      const response = await fetch(`${url}/api/returns/RET-2418`);
+      firstEtag = response.headers.get('etag');
+      firstWorkspace = response.headers.get('x-workspace-id');
+    }, firstPath);
+    await withServer(false, async url => {
+      const response = await fetch(`${url}/api/returns/RET-2418`);
+      const secondEtag = response.headers.get('etag');
+      assert.notEqual(secondEtag, firstEtag);
+      assert.notEqual(response.headers.get('x-workspace-id'), firstWorkspace);
+      for (const etag of [firstEtag, '"1"']) {
+        const stale = await approve(url, 'RET-2418', etag, '민서', '첫 폴더의 메모', randomUUID());
+        assert.equal(stale.status, 412);
+        assert.equal((await stale.json()).record.status, 'pending');
+      }
+      assert.equal((await getRecord(url)).record.events.length, fixtures[0].events.length);
+      assert.equal((await approve(url, 'RET-2418', secondEtag, '민서', '두 번째 폴더의 메모', randomUUID())).status, 200);
+    }, secondPath);
+    await withServer(false, async url => {
+      assert.equal((await getRecord(url)).etag, firstEtag);
+    }, firstPath);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('a replay identifies its saved receipt so the UI can load a later decision', async () => {
+  await withServer(false, async url => {
+    const before = await getRecord(url);
+    const key = randomUUID();
+    const hold = await review(url, 'RET-2418', 'hold', before.etag, '민서', '검수 보류', key);
+    assert.equal(hold.status, 200);
+    const heldEtag = hold.headers.get('etag');
+    const reapprove = await review(url, 'RET-2418', 'reapprove', heldEtag, '지훈', '재검수 완료');
+    assert.equal(reapprove.status, 200);
+    const replay = await review(url, 'RET-2418', 'hold', before.etag, '민서', '검수 보류', key);
+    assert.equal(replay.status, 200);
+    assert.equal(replay.headers.get('x-idempotency-replay'), '1');
+    assert.equal((await replay.json()).record.status, 'held');
+    assert.equal((await getRecord(url)).record.status, 'approved');
   });
 });
 
@@ -343,8 +397,10 @@ test('approval and receipt survive a database reopen without resetting seeded re
   await withDatabase(async databasePath => {
     const key = randomUUID();
     let approved;
+    let initialEtag;
     await withServer(true, async url => {
       const initial = await getRecord(url);
+      initialEtag = initial.etag;
       const response = await approve(url, 'RET-2418', initial.etag, '민서', '상태 확인', key);
       assert.equal(response.status, 200);
       approved = await response.json();
@@ -358,14 +414,14 @@ test('approval and receipt survive a database reopen without resetting seeded re
     await withServer(true, async url => {
       const latest = await getRecord(url);
       assert.deepEqual(latest.record, approved.record);
-      assert.equal(latest.etag, '"2"');
+      assert.equal(latest.etag, nextTag(initialEtag, 2));
       assert.deepEqual(await (await fetch(`${url}/__qa/events`)).json(), { batches: [] });
       assert.equal((await setFault(url, true)).status, 200);
 
-      const replay = await approve(url, 'RET-2418', '"1"', ' 민서 ', ' 상태 확인 ', key);
+      const replay = await approve(url, 'RET-2418', initialEtag, ' 민서 ', ' 상태 확인 ', key);
       assert.equal(replay.status, 200);
       assert.deepEqual(await replay.json(), approved);
-      const conflict = await approve(url, 'RET-2418', '"1"', '지훈', '상태 확인', key);
+      const conflict = await approve(url, 'RET-2418', initialEtag, '지훈', '상태 확인', key);
       assert.equal(conflict.status, 409);
       assert.equal((await conflict.json()).code, 'IDEMPOTENCY_KEY_REUSED');
       const seeded = await getRecord(url, 'RET-2421');

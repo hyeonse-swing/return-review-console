@@ -2,8 +2,8 @@ import fixtures from '../shared/fixtures.json';
 import type { AssignmentCommand, ReturnDetail, ReturnRecord, ReviewCommand } from './api';
 
 type ApprovalResult =
-  | { kind: 'approved'; record: ReturnRecord; etag: string }
-  | { kind: 'conflict'; record: ReturnRecord; etag: string }
+  | { kind: 'approved'; record: ReturnRecord; etag: string; workspaceId: string }
+  | { kind: 'conflict'; record: ReturnRecord; etag: string; workspaceId: string }
   | { kind: 'failed' };
 
 interface Receipt {
@@ -24,15 +24,17 @@ let databasePromise: Promise<IDBDatabase> | undefined;
 function openDatabase(): Promise<IDBDatabase> {
   if (!databasePromise) {
     databasePromise = new Promise((resolve, reject) => {
-      const request = indexedDB.open(databaseName, 2);
+      const request = indexedDB.open(databaseName, 3);
       request.onupgradeneeded = () => {
         const database = request.result;
-        if (database.objectStoreNames.contains('records')) return;
-        const records = database.createObjectStore('records', { keyPath: 'id' });
-        database.createObjectStore('receipts', { keyPath: 'key' });
-        const metadata = database.createObjectStore('metadata');
-        metadata.put(crypto.randomUUID(), 'generation');
-        for (const record of seedRecords) records.add(record);
+        if (!database.objectStoreNames.contains('records')) {
+          const records = database.createObjectStore('records', { keyPath: 'id' });
+          for (const record of seedRecords) records.add(record);
+        }
+        if (!database.objectStoreNames.contains('receipts')) database.createObjectStore('receipts', { keyPath: 'key' });
+        if (!database.objectStoreNames.contains('metadata')) {
+          database.createObjectStore('metadata').put(crypto.randomUUID(), 'generation');
+        }
       };
       request.onsuccess = () => {
         const database = request.result;
@@ -89,17 +91,19 @@ function checkAbort(signal: AbortSignal): void {
   if (signal.aborted) throw signal.reason ?? new DOMException('Request aborted', 'AbortError');
 }
 
-export async function demoQueue(signal: AbortSignal): Promise<ReturnRecord[]> {
+export async function demoQueue(signal: AbortSignal): Promise<{ records: ReturnRecord[]; workspaceId: string }> {
   checkAbort(signal);
-  const records = await runTransaction(['records'], 'readonly', transaction =>
-    requestValue(transaction.objectStore('records').getAll() as IDBRequest<ReturnRecord[]>));
+  const { records, workspaceId } = await runTransaction(['records', 'metadata'], 'readonly', async transaction => ({
+    records: await requestValue(transaction.objectStore('records').getAll() as IDBRequest<ReturnRecord[]>),
+    workspaceId: await requestValue(transaction.objectStore('metadata').get('generation') as IDBRequest<string>),
+  }));
   checkAbort(signal);
   const byId = new Map(records.map(record => [record.id, record]));
-  return seedRecords.map(record => {
+  return { records: seedRecords.map(record => {
     const current = byId.get(record.id);
     if (!current) throw new Error('Browser demo storage is missing a return record.');
     return current;
-  });
+  }), workspaceId };
 }
 
 export async function demoDetail(id: string, signal: AbortSignal): Promise<ReturnDetail> {
@@ -108,7 +112,7 @@ export async function demoDetail(id: string, signal: AbortSignal): Promise<Retur
     const record = await requestValue(transaction.objectStore('records').get(id) as IDBRequest<ReturnRecord | undefined>);
     const generation = await requestValue(transaction.objectStore('metadata').get('generation') as IDBRequest<string>);
     if (!record) throw new Error('Return detail unavailable');
-    return { record, etag: etag(generation, record) };
+    return { record, etag: etag(generation, record), workspaceId: generation };
   });
   checkAbort(signal);
   return detail;
@@ -133,7 +137,7 @@ export async function demoReview(command: ReviewCommand | AssignmentCommand, det
     if (receipt) {
       if ((receipt.command ?? 'approve') !== command || receipt.recordId !== current.id || receipt.ifMatch !== detail.etag ||
           receipt.reviewer !== name || receipt.memo !== note) return { kind: 'failed' };
-      return { kind: 'approved', record: receipt.record, etag: receipt.etag };
+      return { kind: 'approved', record: current, etag: etag(generation, current), workspaceId: generation };
     }
 
     const currentEtag = etag(generation, current);
@@ -142,7 +146,7 @@ export async function demoReview(command: ReviewCommand | AssignmentCommand, det
       : current.status === 'held' && (command === 'assign' ? !current.assignee
         : command === 'unassign' ? current.assignee === name : true);
     if (detail.etag !== currentEtag || !allowed) {
-      return { kind: 'conflict', record: current, etag: currentEtag };
+      return { kind: 'conflict', record: current, etag: currentEtag, workspaceId: generation };
     }
 
     const updated: ReturnRecord = {
@@ -167,7 +171,7 @@ export async function demoReview(command: ReviewCommand | AssignmentCommand, det
       key: operationKey.toLowerCase(), recordId: current.id, ifMatch: detail.etag,
       reviewer: name, memo: note, command, record: updated, etag: updatedEtag,
     } satisfies Receipt);
-    return { kind: 'approved', record: updated, etag: updatedEtag };
+    return { kind: 'approved', record: updated, etag: updatedEtag, workspaceId: generation };
   });
 }
 

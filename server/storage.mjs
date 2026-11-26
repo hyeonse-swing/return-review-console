@@ -9,8 +9,8 @@ export class StorageError extends Error {
   }
 }
 
-function versionTag(record) {
-  return `"${record.version}"`;
+function versionTag(record, workspaceId) {
+  return `"${workspaceId}:${record.version}"`;
 }
 
 export function openReturnStorage({ databasePath, fixtures }) {
@@ -40,7 +40,13 @@ export function openReturnStorage({ databasePath, fixtures }) {
           response_json TEXT NOT NULL,
           etag TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS workspace_metadata (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
       `);
+      database.prepare('INSERT INTO workspace_metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING')
+        .run('generation', randomUUID());
       if (!database.prepare('PRAGMA table_info(approval_receipts)').all().some(column => column.name === 'command')) {
         database.exec("ALTER TABLE approval_receipts ADD COLUMN command TEXT NOT NULL DEFAULT 'approve'");
       }
@@ -54,6 +60,7 @@ export function openReturnStorage({ databasePath, fixtures }) {
     }
 
     const listRecords = database.prepare('SELECT payload FROM return_records ORDER BY ordinal, id');
+    const workspaceId = database.prepare('SELECT value FROM workspace_metadata WHERE key = ?').get('generation').value;
     const findRecord = database.prepare('SELECT payload FROM return_records WHERE id = ?');
     const findReceipt = database.prepare('SELECT * FROM approval_receipts WHERE idempotency_key = ?');
     const updateRecord = database.prepare('UPDATE return_records SET payload = ? WHERE id = ?');
@@ -71,6 +78,7 @@ export function openReturnStorage({ databasePath, fixtures }) {
     };
 
     return {
+      workspaceId,
       list() {
         return safely(() => listRecords.all().map(row => JSON.parse(row.payload)));
       },
@@ -104,9 +112,9 @@ export function openReturnStorage({ databasePath, fixtures }) {
               database.exec('COMMIT');
               return { kind: 'unavailable' };
             }
-            if (ifMatch !== versionTag(record)) {
+            if (ifMatch !== versionTag(record, workspaceId)) {
               database.exec('COMMIT');
-              return { kind: 'stale', record, etag: versionTag(record) };
+              return { kind: 'stale', record, etag: versionTag(record, workspaceId) };
             }
             const assignment = command === 'assign' || command === 'unassign';
             const invalidAssignment = assignment && (record.status !== 'held' ||
@@ -115,7 +123,7 @@ export function openReturnStorage({ databasePath, fixtures }) {
                 (record.status === 'held' && (command === 'approve' || command === 'hold')) ||
                 (record.status === 'pending' && (command === 'reapprove' || command === 'reject'))))) {
               database.exec('COMMIT');
-              return { kind: 'invalidTransition', record, etag: versionTag(record) };
+              return { kind: 'invalidTransition', record, etag: versionTag(record, workspaceId) };
             }
 
             const label = command === 'assign' ? '재검수 담당' : command === 'unassign' ? '재검수 담당 해제'
@@ -132,7 +140,7 @@ export function openReturnStorage({ databasePath, fixtures }) {
               id: randomUUID(), at: new Date().toISOString(), actor: reviewer,
               label, ...(memo ? { memo } : {}),
             });
-            const etag = versionTag(record);
+            const etag = versionTag(record, workspaceId);
             const payload = JSON.stringify(record);
             if (updateRecord.run(payload, id).changes !== 1) throw new StorageError();
             if (key) insertReceipt.run(key, id, ifMatch, reviewer, memo, payload, etag, command);

@@ -109,7 +109,7 @@ async function killCli(child) {
 async function detail(origin, id = recordId) {
   const response = requireStatus(await fetch(`${origin}/api/returns/${id}`), 200, 'record detail');
   const etag = response.headers.get('etag');
-  assert.match(etag ?? '', /^"[1-9]\d*"$/, 'record detail needs an ETag');
+  assert.match(etag ?? '', /^"[a-f0-9-]{36}:[1-9]\d*"$/, 'record detail needs a workspace-scoped ETag');
   const { record } = await response.json();
   assert.equal(record.id, id);
   return { record, etag };
@@ -177,7 +177,7 @@ async function checkRestartAndConcurrency(bin, cwd, workspace) {
     const queueRecord = (await queue.json()).records.find(record => record.id === recordId);
     assert.equal(queueRecord.status, 'approved');
 
-    const replay = requireStatus(await approve(running.origin, '"1"', key, reviewer, memo), 200, 'idempotency replay after restart');
+    const replay = requireStatus(await approve(running.origin, initialEtag, key, reviewer, memo), 200, 'idempotency replay after restart');
     assert.equal(replay.headers.get('etag'), firstEtag);
     assert.equal(await replay.text(), firstBody, 'replayed approval body must be identical');
     const afterReplay = await detail(running.origin);

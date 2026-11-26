@@ -136,6 +136,7 @@ html[lang='en'] .summary dd span { margin-left: 0; }
 .approve-button svg { flex: none; }
 .draft-note { padding: 12px clamp(18px, 2.6vw, 32px); background: var(--amber-wash); color: var(--amber); font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .draft-note strong { display: block; }
+.legacy-notes > p:first-child { margin: 12px clamp(18px, 2.6vw, 32px) 6px; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .hold-reason { display: grid; gap: 4px; margin: 0 clamp(18px, 2.6vw, 32px) 14px; padding: 12px; background: var(--amber-wash); color: var(--amber); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .assignment { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px clamp(18px, 2.6vw, 32px); border-top: 1px solid var(--line); font-size: 13px; }
 .assignment p:first-child { flex: 1; min-width: 160px; }
