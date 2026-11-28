@@ -183,6 +183,56 @@ try {
     if (running?.server.listening) await stopDatabase(running.server);
     await rm(directory, { recursive: true, force: true });
   }
+
+  const switchDirectory = await mkdtemp(join(tmpdir(), 'return-workspace-late-response-'));
+  let activeServer;
+  let activePage;
+  let deliverAssignment;
+  const assignmentGate = new Promise(resolve => { deliverAssignment = resolve; });
+  try {
+    activeServer = await startDatabase(join(switchDirectory, 'first.sqlite'));
+    const { origin } = activeServer;
+    const port = Number(new URL(origin).port);
+    await decide(origin, 'RET-2418', 'hold', '민서', '첫 폴더 보류');
+    activePage = await pageAt(origin, 'RET-2418');
+    let assignmentCommitted;
+    const committed = new Promise(resolve => { assignmentCommitted = resolve; });
+    await activePage.route('**/RET-2418/assign', async route => {
+      const response = await route.fetch();
+      assert.equal(response.status(), 200);
+      assignmentCommitted();
+      await assignmentGate;
+      await route.fulfill({ response });
+    });
+    await activePage.getByRole('button', { name: '내가 맡기' }).click();
+    await committed;
+
+    await stopDatabase(activeServer.server);
+    activeServer = await startDatabase(join(switchDirectory, 'second.sqlite'), port);
+    await activePage.getByRole('button', { name: '새로고침' }).click();
+    await activePage.getByTestId('record-status').getByText('검수 대기').waitFor();
+    await activePage.getByRole('button', { name: '승인하기' }).click();
+    const nextMemo = activePage.getByRole('textbox', { name: '검수 메모' });
+    await nextMemo.fill('두 번째 폴더 검수 중');
+
+    const arriving = activePage.waitForResponse('**/RET-2418/assign');
+    deliverAssignment();
+    const delayedResponse = await arriving;
+    await delayedResponse.finished();
+    await activePage.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    assert.equal(await nextMemo.isVisible(), true, 'A response from the old data folder closed the current review dialog');
+    assert.equal(await nextMemo.inputValue(), '두 번째 폴더 검수 중');
+    assert.equal((await detail(origin, 'RET-2418')).record.status, 'pending');
+    await activePage.getByRole('button', { name: '승인 확정' }).click();
+    await activePage.getByTestId('record-status').getByText('승인 완료').waitFor();
+    const latest = await detail(origin, 'RET-2418');
+    assert.equal(latest.record.events.at(-1).memo, '두 번째 폴더 검수 중');
+  } finally {
+    deliverAssignment();
+    await activePage?.close();
+    if (activeServer?.server.listening) await stopDatabase(activeServer.server);
+    await rm(switchDirectory, { recursive: true, force: true });
+  }
   console.log('Workspace isolation, replay reconciliation, delayed queue/detail, saved decision draft, and reviewer attribution passed.');
 } finally {
   await browser.close();

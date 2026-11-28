@@ -32,6 +32,7 @@ const demoChannel = isWebDemo && typeof BroadcastChannel !== 'undefined'
 const reviewers = ['민서', '지훈'] as const;
 type Reviewer = typeof reviewers[number];
 type PendingApproval = { key: string; etag: string; memo: string; workspaceId: string };
+type UpdateReturn = (updated: ReturnDetail, requestWorkspaceId: string) => void;
 type StatusFilter = 'all' | ReturnRecord['status'];
 const filters: StatusFilter[] = ['all', 'pending', 'held', 'approved', 'rejected'];
 const formatters = {
@@ -184,7 +185,7 @@ function Approval({ current, reviewer, language, onUpdate }: {
   current: ReturnDetail;
   reviewer: Reviewer;
   language: Language;
-  onUpdate: (updated: ReturnDetail) => void;
+  onUpdate: UpdateReturn;
 }) {
   const { record } = current;
   const t = copy[language];
@@ -256,7 +257,7 @@ function Approval({ current, reviewer, language, onUpdate }: {
       setMessage('failed');
       return;
     }
-    onUpdate({ record: result.record, etag: result.etag, workspaceId: result.workspaceId });
+    onUpdate({ record: result.record, etag: result.etag, workspaceId: result.workspaceId }, operation.workspaceId);
     if (result.kind === 'conflict') {
       setMessage(result.workspaceId === operation.workspaceId ? 'conflict' : 'workspace');
       return;
@@ -304,7 +305,7 @@ function ReviewDecision({ command, current, reviewer, language, onUpdate }: {
   current: ReturnDetail;
   reviewer: Reviewer;
   language: Language;
-  onUpdate: (updated: ReturnDetail) => void;
+  onUpdate: UpdateReturn;
 }) {
   const { record } = current;
   const t = copy[language];
@@ -354,7 +355,7 @@ function ReviewDecision({ command, current, reviewer, language, onUpdate }: {
       setMessage('failed');
       return;
     }
-    onUpdate({ record: result.record, etag: result.etag, workspaceId: result.workspaceId });
+    onUpdate({ record: result.record, etag: result.etag, workspaceId: result.workspaceId }, operation.workspaceId);
     if (result.kind === 'conflict') {
       setMessage(result.workspaceId === operation.workspaceId ? 'conflict' : 'workspace');
       return;
@@ -403,7 +404,7 @@ function Assignment({ current, reviewer, language, onUpdate }: {
   current: ReturnDetail;
   reviewer: Reviewer;
   language: Language;
-  onUpdate: (updated: ReturnDetail) => void;
+  onUpdate: UpdateReturn;
 }) {
   const { record } = current;
   const t = copy[language];
@@ -449,7 +450,7 @@ function Assignment({ current, reviewer, language, onUpdate }: {
       setMessage('failed');
       return;
     }
-    onUpdate({ record: result.record, etag: result.etag, workspaceId: result.workspaceId });
+    onUpdate({ record: result.record, etag: result.etag, workspaceId: result.workspaceId }, operation.workspaceId);
     if (result.kind === 'conflict') setMessage('conflict');
   }
 
@@ -712,7 +713,8 @@ function App() {
     refresh();
   }
 
-  function update(next: ReturnDetail) {
+  function update(next: ReturnDetail, requestWorkspaceId: string) {
+    if (requestWorkspaceId !== workspaceId.current) return;
     if (next.workspaceId !== workspaceId.current) {
       refresh();
       return;
